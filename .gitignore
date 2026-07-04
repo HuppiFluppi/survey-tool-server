@@ -1,0 +1,16 @@
+## Build
+/target
+**/target/
+
+## Editor
+.idea
+*.iml
+.vscode
+
+## Kotlin
+.kotlin
+.gradle
+**/build/
+
+## Other
+.DS_Store

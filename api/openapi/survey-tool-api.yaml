@@ -1,0 +1,493 @@
+openapi: 3.1.0
+
+info:
+  title: Survey Tool Server Api
+  description: API specification for the survey tool client<>server communication
+  version: 1.0.0
+
+paths:
+  /v1/survey:
+    get: #should be query
+      summary: List surveys
+      description: Returns a list of all surveys, optionally filtered by the given parameters
+      tags: [ Survey ]
+      requestBody:
+        description: Optional search filter
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SurveySearch'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              description: List of SurveySummary
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SurveySummary'
+        '400':
+          $ref: '#/components/responses/ClientError'
+        '401':
+          $ref: '#/components/responses/AuthError'
+        '403':
+          $ref: '#/components/responses/AuthError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      summary: Create survey
+      tags: [ Survey ]
+      requestBody:
+        description: Zip file with survey configuration
+        required: true
+        content:
+          application/zip: { }
+      responses:
+        '201':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SurveyId'
+        '400':
+          $ref: '#/components/responses/ClientError'
+        '401':
+          $ref: '#/components/responses/AuthError'
+        '403':
+          $ref: '#/components/responses/AuthError'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /v1/survey/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SurveyIdParam'
+    get:
+      summary: Get survey
+      description: Get the survey with the given id
+      tags: [ Survey ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/zip: { }
+        '400':
+          $ref: '#/components/responses/ClientError'
+        '401':
+          $ref: '#/components/responses/AuthError'
+        '403':
+          $ref: '#/components/responses/AuthError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      summary: Delete survey
+      description: Delete the survey with the given id
+      tags: [ Survey ]
+      responses:
+        '204':
+          description: OK
+        '400':
+          $ref: '#/components/responses/ClientError'
+        '401':
+          $ref: '#/components/responses/AuthError'
+        '403':
+          $ref: '#/components/responses/AuthError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /v1/survey/{id}/results:
+    parameters:
+      - $ref: '#/components/parameters/SurveyIdParam'
+    get:
+      summary: Get results
+      description: Get the results of the survey with the given id
+      tags: [ SurveyResults ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              description: List of SurveyResults
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SurveyResult'
+        '400':
+          $ref: '#/components/responses/ClientError'
+        '401':
+          $ref: '#/components/responses/AuthError'
+        '403':
+          $ref: '#/components/responses/AuthError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    post:
+      summary: Add result
+      description: Add a new result to the survey with the given id
+      tags: [ SurveyResults ]
+      requestBody:
+        description: Survey result
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SurveyResult'
+      responses:
+        '204':
+          description: OK
+        '400':
+          $ref: '#/components/responses/ClientError'
+        '401':
+          $ref: '#/components/responses/AuthError'
+        '403':
+          $ref: '#/components/responses/AuthError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+    delete:
+      summary: Delete results
+      description: Delete all results of the survey with the given id
+      tags: [ SurveyResults ]
+      responses:
+        '204':
+          description: OK
+        '400':
+          $ref: '#/components/responses/ClientError'
+        '401':
+          $ref: '#/components/responses/AuthError'
+        '403':
+          $ref: '#/components/responses/AuthError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /v1/survey/{id}/summary:
+    parameters:
+      - $ref: '#/components/parameters/SurveyIdParam'
+    get:
+      summary: Get survey summary
+      description: Get a summary of the survey with the given id
+      tags: [ SurveyData ]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              description: Survey summary
+              schema:
+                $ref: '#/components/schemas/SurveySummary'
+        '400':
+          $ref: '#/components/responses/ClientError'
+        '401':
+          $ref: '#/components/responses/AuthError'
+        '403':
+          $ref: '#/components/responses/AuthError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /v1/survey/{id}/highscore:
+    parameters:
+      - $ref: '#/components/parameters/SurveyIdParam'
+    get:
+      summary: Get survey highscore
+      description: Get the highscore table of the survey with the given id
+      tags: [ SurveyData ]
+      parameters:
+        - name: limit
+          in: query
+          description: Maximum number of entries to return
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            default: 10
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              description: Survey highscore
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SurveyHighscoreEntry'
+        '400':
+          $ref: '#/components/responses/ClientError'
+        '401':
+          $ref: '#/components/responses/AuthError'
+        '403':
+          $ref: '#/components/responses/AuthError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+  /v1/survey/{id}/active/{set}:
+    parameters:
+      - $ref: '#/components/parameters/SurveyIdParam'
+    put:
+      summary: Set survey (in)-active
+      description: >
+        Set the survey with the given id to active/inactive according to the set parameter. 
+        Inactive surveys dont accept any new contributions.
+      tags: [ Survey ]
+      parameters:
+        - name: set
+          in: path
+          description: Whether to set the survey to active or inactive
+          required: true
+          schema:
+            type: boolean
+      responses:
+        '204':
+          description: OK
+        '400':
+          $ref: '#/components/responses/ClientError'
+        '401':
+          $ref: '#/components/responses/AuthError'
+        '403':
+          $ref: '#/components/responses/AuthError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/ServerError'
+
+components:
+  schemas:
+    SurveySearch:
+      type: object
+      properties:
+        type:
+          $ref: '#/components/schemas/SurveyType'
+        active:
+          type: boolean
+          description: If true, only active surveys are returned
+    SurveyHighscoreEntry:
+      type: object
+      required:
+        - name
+        - score
+        - time
+      properties:
+        name:
+          type: string
+          description: Name of the participant
+        score:
+          type: integer
+          minimum: 0
+          description: Score of the participant
+        time:
+          type: string
+          description: Time when the score was achieved
+          format: date-time
+    SurveyResult:
+      type: object
+      required:
+        - origin
+        - start_time
+        - end_time
+        - answered_pages
+        - answered_questions
+        - answers
+      properties:
+        origin:
+          type: string
+          description: Identifier of the uploader of the result
+        start_time:
+          type: string
+          description: Time when the survey was started
+          format: date-time
+        end_time:
+          type: string
+          description: Time when the survey was finished
+          format: date-time
+        user:
+          type: string
+          description: Name of the participant
+        score:
+          type: integer
+          minimum: 0
+          description: Score achieved
+        answered_pages:
+          type: integer
+          minimum: 0
+          description: Number of pages the participant answered
+        answered_questions:
+          type: integer
+          minimum: 0
+          description: Number of questions the participant answered
+        answers:
+          type: array
+          description: Answers to the questions
+          items:
+            type: object
+            required:
+              - question_id
+              - question_title
+              - question_type
+              - is_answered
+            properties:
+              question_id:
+                type: string
+                description: Id of the question
+              question_title:
+                type: string
+                description: Title of the question
+              question_type:
+                type: string
+                description: Type of the question
+                enum: [ data, choice, text, rating, likert, datetime, slider ]
+              is_answered:
+                type: boolean
+                description: Whether the question was answered
+              answer:
+                description: Answer to the question
+                oneOf:
+                  - type: string
+                  - type: integer
+                  - type: array
+                    items:
+                      type: string
+                  - type: object
+                    additionalProperties:
+                      type: string
+                  - type: object
+                    required:
+                      - first
+                    properties:
+                      first: { type: number }
+                      second: { type: number }
+    SurveySummary:
+      type: object
+      required:
+        - title
+        - description
+        - survey_type
+        - active
+        - page_count
+        - question_count
+        - conditionals
+        - submit_count
+      properties:
+        title:
+          type: string
+          minLength: 3
+        description:
+          type: string
+          minLength: 20
+        survey_type:
+          $ref: '#/components/schemas/SurveyType'
+        active:
+          type: boolean
+        page_count:
+          type: integer
+          description: Number of pages in the survey
+          minimum: 0
+        question_count:
+          type: integer
+          description: Total number of questions in the survey
+          minimum: 0
+        submit_count:
+          type: integer
+          description: Number of times the survey was answered
+          minimum: 0
+        conditionals:
+          type: boolean
+          description: Whether the survey contains conditional questions
+        first_submit_time:
+          type: string
+          description: Date of the first survey submission
+          format: date-time
+        last_submit_time:
+          type: string
+          description: Date of the most recent survey submission
+          format: date-time
+        min_score:
+          type: integer
+          description: Lowest score achieved
+          minimum: 0
+        max_score:
+          type: integer
+          description: Highest score achieved
+          minimum: 0
+        avg_score:
+          type: number
+          description: Average score achieved
+          minimum: 0
+    SurveyId:
+      type: string
+      format: uuid
+      description: Id of a survey
+    SurveyType:
+      type: string
+      description: Type of the survey
+      enum:
+        - survey
+        - quiz
+    Error:
+      type: object
+      required:
+        - code
+        - message
+      properties:
+        code:
+          type: string
+          description: Error code
+        message:
+          type: string
+          description: Human readable error message
+  parameters:
+    SurveyIdParam:
+      name: id
+      in: path
+      description: Id of the survey
+      required: true
+      schema:
+        $ref: '#/components/schemas/SurveyId'
+  responses:
+    ServerError:
+      description: Server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Entity not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ClientError:
+      description: Invalid request data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    AuthError:
+      description: Auth error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+  securitySchemes:
+    http:
+      type: http
+      scheme: basic
+      description: http username+password authentication
+
+security:
+  - http: [ ]
+  - { }
+
+externalDocs:
+  description: Github project
+  url: https://github.com/HuppiFluppi/survey-tool-server

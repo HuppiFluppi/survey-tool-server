@@ -1,0 +1,225 @@
+syntax = "proto3";
+
+package survey.v1;
+
+option java_package = "com.zinkel.surveyTool.grpc.v1";
+
+import "google/protobuf/timestamp.proto";
+
+// ---------------------------------------------------------------------------
+// Shared types
+// ---------------------------------------------------------------------------
+
+enum SurveyType {
+  SURVEY_TYPE_UNSPECIFIED = 0;
+  SURVEY_TYPE_SURVEY = 1;
+  SURVEY_TYPE_QUIZ = 2;
+}
+
+message SurveySummary {
+  string title = 1;
+  string description = 2;
+  SurveyType survey_type = 3;
+  bool active = 4;
+  uint32 page_count = 5;
+  uint32 question_count = 6;
+  uint32 submit_count = 7;
+  bool conditionals = 8;
+  google.protobuf.Timestamp first_submit_time = 9;
+  google.protobuf.Timestamp last_submit_time = 10;
+  optional int32 min_score = 11;
+  optional int32 max_score = 12;
+  optional double avg_score = 13;
+}
+
+// ---------------------------------------------------------------------------
+// SurveyService  (mirrors /v1/survey and /v1/survey/{id})
+// ---------------------------------------------------------------------------
+
+service SurveyService {
+  // Returns a list of all surveys, optionally filtered by the given parameters
+  // GET    /v1/survey          → gRPC: INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED, INTERNAL
+  rpc ListSurveys(ListSurveysRequest) returns (ListSurveysResponse);
+
+  // Create survey
+  // POST   /v1/survey          → gRPC: INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED, INTERNAL
+  rpc CreateSurvey(CreateSurveyRequest) returns (CreateSurveyResponse);
+
+  // Get the survey with the given id
+  // GET    /v1/survey/{id}     → gRPC: INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED, NOT_FOUND, INTERNAL
+  rpc GetSurvey(GetSurveyRequest) returns (GetSurveyResponse);
+
+  // Delete the survey with the given id
+  // DELETE /v1/survey/{id}     → gRPC: INVALID_ARGUMENT, UNAUTHENTICATED, PERMISSION_DENIED, NOT_FOUND, INTERNAL
+  rpc DeleteSurvey(DeleteSurveyRequest) returns (DeleteSurveyResponse);
+
+  // Set survey (in)-active
+  // PUT    /v1/survey/{id}/active/{set}
+  rpc SetSurveyActive(SetSurveyActiveRequest) returns (SetSurveyActiveResponse);
+}
+
+message ListSurveysRequest {
+  optional SurveyType type = 1;
+  optional bool active = 2;
+}
+
+message ListSurveysResponse {
+  repeated SurveySummary surveys = 1;
+}
+
+message CreateSurveyRequest {
+  bytes zip_content = 1; // zip file contents
+}
+
+message CreateSurveyResponse {
+  string survey_id = 1; // UUID of the created survey
+}
+
+message GetSurveyRequest {
+  string survey_id = 1;
+}
+
+message GetSurveyResponse {
+  bytes zip_content = 1; // zip file contents
+}
+
+message DeleteSurveyRequest {
+  string survey_id = 1;
+}
+
+message DeleteSurveyResponse {}
+
+message SetSurveyActiveRequest {
+  string survey_id = 1;
+  bool active = 2;
+}
+
+message SetSurveyActiveResponse {}
+
+// ---------------------------------------------------------------------------
+// SurveyResultsService  (mirrors /v1/survey/{id}/results)
+// ---------------------------------------------------------------------------
+
+service SurveyResultsService {
+  // Get the results of the survey with the given id
+  // GET    /v1/survey/{id}/results
+  rpc GetResults(GetResultsRequest) returns (GetResultsResponse);
+
+  // Add a new result to the survey with the given id
+  // POST   /v1/survey/{id}/results
+  rpc AddResult(AddResultRequest) returns (AddResultResponse);
+
+  // Delete all results of the survey with the given id
+  // DELETE /v1/survey/{id}/results
+  rpc DeleteResults(DeleteResultsRequest) returns (DeleteResultsResponse);
+}
+
+message GetResultsRequest {
+  string survey_id = 1;
+}
+
+message GetResultsResponse {
+  repeated SurveyResult results = 1;
+}
+
+message AddResultRequest {
+  string survey_id = 1;
+  SurveyResult result = 2;
+}
+
+message AddResultResponse {}
+
+message DeleteResultsRequest {
+  string survey_id = 1;
+}
+
+message DeleteResultsResponse {}
+
+enum QuestionType {
+  QUESTION_TYPE_UNSPECIFIED = 0;
+  QUESTION_TYPE_DATA = 1;
+  QUESTION_TYPE_CHOICE = 2;
+  QUESTION_TYPE_TEXT = 3;
+  QUESTION_TYPE_RATING = 4;
+  QUESTION_TYPE_LIKERT = 5;
+  QUESTION_TYPE_DATETIME = 6;
+  QUESTION_TYPE_SLIDER = 7;
+}
+
+// Represents the answer to a single question.
+// Exactly one of the answer fields should be set.
+message QuestionAnswer {
+  string question_id = 1;
+  string question_title = 2;
+  QuestionType question_type = 3;
+  bool is_answered = 4;
+
+  oneof answer {
+    string string_answer = 5;
+    int32 int_answer = 6;
+    StringList list_answer = 7;
+    StringMap map_answer = 8;
+    RangeAnswer range_answer = 9;
+  }
+}
+
+message StringList {
+  repeated string values = 1;
+}
+
+message StringMap {
+  map<string, string> entries = 1;
+}
+
+message RangeAnswer {
+  double first = 1;
+  optional double second = 2;
+}
+
+message SurveyResult {
+  string origin = 1;
+  google.protobuf.Timestamp start_time = 2;
+  google.protobuf.Timestamp end_time = 3;
+  optional string user = 4;
+  optional int32 score = 5;
+  uint32 answered_pages = 6;
+  uint32 answered_questions = 7;
+  repeated QuestionAnswer answers = 8;
+}
+
+// ---------------------------------------------------------------------------
+// SurveyDataService  (mirrors /v1/survey/{id}/summary and /highscore)
+// ---------------------------------------------------------------------------
+
+service SurveyDataService {
+  // Get survey summary
+  // GET /v1/survey/{id}/summary
+  rpc GetSurveySummary(GetSurveySummaryRequest) returns (GetSurveySummaryResponse);
+
+  // Get survey highscore
+  // GET /v1/survey/{id}/highscore
+  rpc GetHighscore(GetHighscoreRequest) returns (GetHighscoreResponse);
+}
+
+message GetSurveySummaryRequest {
+  string survey_id = 1;
+}
+
+message GetSurveySummaryResponse {
+  SurveySummary summary = 1;
+}
+
+message GetHighscoreRequest {
+  string survey_id = 1;
+  optional uint32 limit = 2; // default 10
+}
+
+message GetHighscoreResponse {
+  repeated HighscoreEntry entries = 1;
+}
+
+message HighscoreEntry {
+  string name = 1;
+  int32 score = 2;
+  google.protobuf.Timestamp time = 3;
+}
