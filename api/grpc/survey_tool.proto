@@ -1,3 +1,10 @@
+// ---------------------------------------------------------------------------
+// Survey Tool Api gRPC specification
+//
+// Used for communication btw. clients (survey-tool & survey-tool-cli) and
+// server (survey-tool-server)
+// ---------------------------------------------------------------------------
+
 syntax = "proto3";
 
 package survey.v1;
@@ -17,18 +24,31 @@ enum SurveyType {
 }
 
 message SurveySummary {
+  // title of the survey. mandatory
   string title = 1;
+  // description of the survey. mandatory
   string description = 2;
+  // type of the survey. mandatory
   SurveyType survey_type = 3;
+  // activation state. Inactive surveys cannot have new results. mandatory
   bool active = 4;
+  // total pages in survey. mandatory
   uint32 page_count = 5;
+  // total questions in survey. mandatory
   uint32 question_count = 6;
+  // number of submits. mandatory
   uint32 submit_count = 7;
+  // whether the survey has conditional elements. mandatory
   bool conditionals = 8;
+  // when the first submit for the survey was. only set if the survey was answered
   google.protobuf.Timestamp first_submit_time = 9;
+  // most recent submit for the survey. only set if the survey was answered
   google.protobuf.Timestamp last_submit_time = 10;
+  // min score achieved. only available if survey type is quiz
   optional int32 min_score = 11;
+  // min score achieved. only available if survey type is quiz
   optional int32 max_score = 12;
+  // min score achieved. only available if survey type is quiz
   optional double avg_score = 13;
 }
 
@@ -59,7 +79,9 @@ service SurveyService {
 }
 
 message ListSurveysRequest {
+  // optional filter for survey type
   optional SurveyType type = 1;
+  // optional filter for active status
   optional bool active = 2;
 }
 
@@ -68,7 +90,7 @@ message ListSurveysResponse {
 }
 
 message CreateSurveyRequest {
-  bytes zip_content = 1; // zip file contents
+  bytes zip_content = 1; // zip file contents. mandatory
 }
 
 message CreateSurveyResponse {
@@ -76,7 +98,7 @@ message CreateSurveyResponse {
 }
 
 message GetSurveyRequest {
-  string survey_id = 1;
+  string survey_id = 1; // UUID of the survey. mandatory
 }
 
 message GetSurveyResponse {
@@ -84,14 +106,14 @@ message GetSurveyResponse {
 }
 
 message DeleteSurveyRequest {
-  string survey_id = 1;
+  string survey_id = 1; // UUID of the survey. mandatory
 }
 
 message DeleteSurveyResponse {}
 
 message SetSurveyActiveRequest {
-  string survey_id = 1;
-  bool active = 2;
+  string survey_id = 1; // UUID of the survey. mandatory
+  bool active = 2; //state for the survey. mandatory
 }
 
 message SetSurveyActiveResponse {}
@@ -115,7 +137,7 @@ service SurveyResultsService {
 }
 
 message GetResultsRequest {
-  string survey_id = 1;
+  string survey_id = 1; // UUID of the survey. mandatory
 }
 
 message GetResultsResponse {
@@ -123,14 +145,14 @@ message GetResultsResponse {
 }
 
 message AddResultRequest {
-  string survey_id = 1;
+  string survey_id = 1; // UUID of the survey. mandatory
   SurveyResult result = 2;
 }
 
 message AddResultResponse {}
 
 message DeleteResultsRequest {
-  string survey_id = 1;
+  string survey_id = 1; // UUID of the survey. mandatory
 }
 
 message DeleteResultsResponse {}
@@ -149,12 +171,12 @@ enum QuestionType {
 // Represents the answer to a single question.
 // Exactly one of the answer fields should be set.
 message QuestionAnswer {
-  string question_id = 1;
-  string question_title = 2;
-  QuestionType question_type = 3;
-  bool is_answered = 4;
+  string question_id = 1; // question id. mandatory
+  string question_title = 2; // question title. mandatory
+  QuestionType question_type = 3; // question type. mandatory
+  bool is_answered = 4; // question answered. mandatory
 
-  oneof answer {
+  oneof answer {// mandatory if question answered
     string string_answer = 5;
     int32 int_answer = 6;
     StringList list_answer = 7;
@@ -177,14 +199,14 @@ message RangeAnswer {
 }
 
 message SurveyResult {
-  string origin = 1;
-  google.protobuf.Timestamp start_time = 2;
-  google.protobuf.Timestamp end_time = 3;
-  optional string user = 4;
-  optional int32 score = 5;
-  uint32 answered_pages = 6;
-  uint32 answered_questions = 7;
-  repeated QuestionAnswer answers = 8;
+  string origin = 1; // origin. typically an identifier of the client. mandatory
+  google.protobuf.Timestamp start_time = 2; // when the user started the survey. mandatory
+  google.protobuf.Timestamp end_time = 3; // when the user end the survey. mandatory
+  optional string user = 4; // needed for survey type quiz
+  optional int32 score = 5; // needed for survey type quiz
+  uint32 answered_pages = 6; // how many pages the user answered. mandatory
+  uint32 answered_questions = 7; // how many questions the user answered. mandatory
+  repeated QuestionAnswer answers = 8; //answers
 }
 
 // ---------------------------------------------------------------------------
@@ -202,7 +224,7 @@ service SurveyDataService {
 }
 
 message GetSurveySummaryRequest {
-  string survey_id = 1;
+  string survey_id = 1; // UUID of the survey. mandatory
 }
 
 message GetSurveySummaryResponse {
@@ -210,8 +232,8 @@ message GetSurveySummaryResponse {
 }
 
 message GetHighscoreRequest {
-  string survey_id = 1;
-  optional uint32 limit = 2; // default 10
+  string survey_id = 1; // UUID of the survey. mandatory
+  optional uint32 limit = 2; // return limit. default 10
 }
 
 message GetHighscoreResponse {
@@ -219,7 +241,7 @@ message GetHighscoreResponse {
 }
 
 message HighscoreEntry {
-  string name = 1;
-  int32 score = 2;
-  google.protobuf.Timestamp time = 3;
+  string name = 1; // name of the participant
+  int32 score = 2; // score of the participant
+  google.protobuf.Timestamp time = 3; // time of the survey run
 }
