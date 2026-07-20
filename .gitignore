@@ -1,6 +1,7 @@
 ## Build
 /target
 **/target/
+/out/
 
 ## Editor
 .idea

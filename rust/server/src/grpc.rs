@@ -9,22 +9,20 @@ use crate::grpc::grpc_survey_api as api;
 use crate::grpc::grpc_survey_api::survey_data_service_server::{SurveyDataService, SurveyDataServiceServer};
 use crate::grpc::grpc_survey_api::survey_results_service_server::{SurveyResultsService, SurveyResultsServiceServer};
 use crate::grpc::grpc_survey_api::survey_service_server::{SurveyService, SurveyServiceServer};
-use crate::persistence;
-use crate::shared::AuthSetting;
-use crate::shared::TlsSetting;
-use crate::shared::ROLES;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use tonic::{transport::Server, Request, Response, Status};
+use crate::shared::persistence::SurveyPersistenceClient;
+use crate::shared::server::{AuthSetting, ROLES, TlsSetting};
+use tonic::{Request, Response, Status, transport::Server};
 
 pub struct SurveyApiServer {
-    persistence: persistence::SurveyPersistenceClient,
+    persistence: Arc<dyn SurveyPersistenceClient>,
     auth_setting: AuthSetting,
 }
 
 impl SurveyApiServer {
-    pub async fn serve(address: SocketAddr, persistence: persistence::SurveyPersistenceClient) -> Result<(), tonic::transport::Error> {
+    pub async fn serve(address: SocketAddr, persistence: Arc<dyn SurveyPersistenceClient>) -> Result<(), tonic::transport::Error> {
         let server = Arc::new(SurveyApiServer { persistence, auth_setting: AuthSetting::None });
 
         Server::builder()
@@ -39,7 +37,7 @@ impl SurveyApiServer {
 
     pub async fn serve_with_config(
         address: SocketAddr,
-        persistence: persistence::SurveyPersistenceClient,
+        persistence: Arc<dyn SurveyPersistenceClient>,
         auth: AuthSetting,
         tls: TlsSetting,
     ) -> Result<(), tonic::transport::Error> {

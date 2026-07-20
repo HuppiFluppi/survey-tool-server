@@ -1,9 +1,13 @@
-use crate::shared::{AuthSetting, TlsSetting};
+extern crate core;
+
+use crate::shared::persistence::{PersistenceError, SurveyPersistenceClient};
+use crate::shared::server::{AuthSetting, TlsSetting};
 use clap::error::ErrorKind;
 use clap::{Args, CommandFactory, Parser, ValueEnum};
 use std::error::Error;
 use std::net::SocketAddr;
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[cfg(feature = "grpc")]
 mod grpc;
@@ -17,7 +21,6 @@ mod aws;
 #[cfg(feature = "local")]
 mod local;
 
-mod persistence;
 mod shared;
 
 #[derive(Debug, Parser)]
@@ -46,7 +49,9 @@ struct Opt {
 #[derive(Args, Debug)]
 struct CliPersistenceSetting {
     /// Persistence type
-    #[arg(long, env, value_enum, default_value_t = CliPersistenceType::Local)]
+    #[arg(long, env, value_enum)]
+    #[cfg_attr(feature = "aws", arg(default_value_t = CliPersistenceType::AWS))]
+    #[cfg_attr(feature = "local", arg(default_value_t = CliPersistenceType::Local))]
     persistence_type: CliPersistenceType,
 
     /// The name of the bucket. This stores the survey configuration files. Required if persistence_type is 'aws'
@@ -139,8 +144,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // tls
     let tls = get_tls_setting(&opt.tls).await;
 
-    // setup persistence
-    let persistence = persistence::SurveyPersistenceClient::new().await; //setup_persistence(&opt).await?;
+    // persistence
+    let persistence = setup_persistence(&opt.persistence)
+        .await
+        .unwrap_or_else(|e| Opt::command().error(ErrorKind::ValueValidation, format!("Error setting up persistence: {e}")).exit());
 
     // --- welcome banner
     welcome_banner();
@@ -152,7 +159,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "grpc")]
     {
         println!("Starting gRPC service...");
-        handles.spawn(grpc::SurveyApiServer::serve_with_config(opt.grpc_address, persistence, auth, tls));
+        handles.spawn(grpc::SurveyApiServer::serve_with_config(opt.grpc_address, persistence.clone(), auth, tls));
         println!("  ✅ running");
     }
 
@@ -193,7 +200,7 @@ fn welcome_banner() {
 
 async fn get_tls_setting(tls: &CliTlsSetting) -> TlsSetting {
     match (&tls.tls_setting, &tls.tls_cert_pem_file, &tls.tls_key_pem_file) {
-        (CliTlsType::Off, _, _) => shared::TlsSetting::off(),
+        (CliTlsType::Off, _, _) => TlsSetting::off(),
         (CliTlsType::Pem, Some(cert_file), Some(key_file)) => {
             let cert = match tokio::fs::read_to_string(cert_file).await {
                 Ok(s) => s,
@@ -203,7 +210,7 @@ async fn get_tls_setting(tls: &CliTlsSetting) -> TlsSetting {
                 Ok(s) => s,
                 Err(e) => Opt::command().error(ErrorKind::ValueValidation, format!("Error reading key file: {e}")).exit(),
             };
-            shared::TlsSetting::pem(cert, key)
+            TlsSetting::pem(cert, key)
         },
         _ => Opt::command().error(ErrorKind::MissingRequiredArgument, "Invalid tls config").exit(),
     }
@@ -211,7 +218,7 @@ async fn get_tls_setting(tls: &CliTlsSetting) -> TlsSetting {
 
 fn get_auth_setting(auth: &CliAuthSetting) -> AuthSetting {
     match (&auth.auth_setting, &auth.auth_config) {
-        (CliAuthType::None, _) => shared::AuthSetting::None,
+        (CliAuthType::None, _) => AuthSetting::None,
         (CliAuthType::Simple, Some(config)) => {
             let entries = config
                 .split(';')
@@ -224,19 +231,26 @@ fn get_auth_setting(auth: &CliAuthSetting) -> AuthSetting {
                     let roles: Vec<_> = r
                         .split(',')
                         .map(|r| {
-                            shared::ROLES::from_str(r)
+                            shared::server::ROLES::from_str(r)
                                 .unwrap_or_else(|f| Opt::command().error(ErrorKind::ValueValidation, format!("Invalid roles: {f}")).exit())
                         })
                         .collect();
                     (u.to_string(), p.to_string(), roles)
                 })
                 .collect();
-            shared::AuthSetting::simple(entries)
+            AuthSetting::simple(entries)
         },
         _ => Opt::command().error(ErrorKind::MissingRequiredArgument, "Invalid auth config").exit(),
     }
 }
 
-// async fn setup_persistence() -> Result<impl SurveyPersistenceClient, Box<dyn Error>> {
-//     todo!()
-// }
+async fn setup_persistence(persistence: &CliPersistenceSetting) -> Result<Arc<dyn SurveyPersistenceClient>, PersistenceError> {
+    match persistence.persistence_type {
+        #[cfg(feature = "local")]
+        CliPersistenceType::Local => Ok(local::new(&persistence.persistence_local_storage_folder, &persistence.persistence_local_db_folder).await?),
+        #[cfg(feature = "aws")]
+        CliPersistenceType::AWS => {
+            Ok(aws::new(&persistence.persistence_aws_bucket, &persistence.persistence_aws_bucket_prefix, &persistence.persistence_aws_dynamo_table).await?)
+        },
+    }
+}

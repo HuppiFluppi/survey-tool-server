@@ -11,6 +11,7 @@ TODO
 - [] Publish REST & gRPC api (raw + rust & kotlin libs)
 - [] Create Rust server
 - [] Create Rust client
+- [] Provide Docker build
 - [] Create Kotlin Ktor server
 - [] Create Kotlin Ktor client
 - [] Create benchmark
