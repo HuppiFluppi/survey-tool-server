@@ -2,19 +2,19 @@ pub mod server {
     use strum::EnumString;
 
     #[derive(PartialEq, Debug, Clone, EnumString)]
-    pub enum ROLES {
-        ADMIN,
-        USER,
+    pub enum Roles {
+        Admin,
+        User,
     }
 
     #[derive(Debug, Clone)]
     pub enum AuthSetting {
         None,
-        Simple { auth_mapping: std::collections::HashMap<String, Vec<ROLES>> },
+        Simple { auth_mapping: std::collections::HashMap<String, Vec<Roles>> },
     }
 
     impl AuthSetting {
-        pub fn simple(entries: Vec<(String, String, Vec<ROLES>)>) -> Self {
+        pub fn simple(entries: Vec<(String, String, Vec<Roles>)>) -> Self {
             Self::Simple { auth_mapping: entries.into_iter().map(|t| (format!("{}:{}", t.0, t.1), t.2)).collect() }
         }
     }
@@ -45,6 +45,7 @@ pub mod persistence {
         async fn save_survey(&self, survey: Vec<u8>) -> Result<String, PersistenceError>;
         async fn get_survey(&self, id: &str) -> Result<Vec<u8>, PersistenceError>;
         async fn get_survey_summary(&self, id: &str) -> Result<SurveySummary, PersistenceError>;
+        async fn survey_exist(&self, id: &str) -> Result<bool, PersistenceError>;
 
         async fn list_surveys(&self, active: Option<bool>, survey_type: Option<SurveyType>) -> Result<Vec<SurveySummary>, PersistenceError>;
         async fn delete_survey(&self, id: &str) -> Result<(), PersistenceError>;
@@ -62,7 +63,7 @@ pub mod persistence {
     pub(crate) enum PersistenceError {
         Generic(String),
         NotFound(String),
-        NotAFile(String),
+        //NotAFile(String),
         NotADir(String),
         NotWriteable(String),
         DbError(String),
@@ -75,7 +76,7 @@ pub mod persistence {
         fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
             match self {
                 PersistenceError::NotFound(p) => write!(f, "Element '{p}' not found"),
-                PersistenceError::NotAFile(p) => write!(f, "Element '{p}' is not a file"),
+                //PersistenceError::NotAFile(p) => write!(f, "Element '{p}' is not a file"),
                 PersistenceError::NotADir(p) => write!(f, "Element '{p}' is not a directory"),
                 PersistenceError::NotWriteable(p) => write!(f, "Element '{p}' is not writable"),
                 PersistenceError::Generic(e) => write!(f, "Error: {e}"),
@@ -91,7 +92,7 @@ pub mod persistence {
 
     pub mod models {
         use std::collections::HashMap;
-
+        pub use survey_tool_cli::SurveyContentType as QuestionType;
         pub use survey_tool_cli::SurveyType;
 
         pub struct SurveySummary {
@@ -104,19 +105,19 @@ pub mod persistence {
             pub question_count: u32,
             pub submit_count: u32,
             pub conditionals: bool,
-            pub first_submit_time: Option<String>,
-            pub last_submit_time: Option<String>,
+            pub first_submit_time: Option<String>, // format RFC 3339: {year}-{month}-{day}T{hour}:{min}:{sec}[.{frac_sec}]Z
+            pub last_submit_time: Option<String>,  // format RFC 3339: {year}-{month}-{day}T{hour}:{min}:{sec}[.{frac_sec}]Z
             pub min_score: Option<i32>,
             pub max_score: Option<i32>,
-            pub avg_score: Option<f64>,
+            pub avg_score: Option<f32>,
         }
 
         pub struct SurveyResult {
             pub origin: String,
-            pub start_time: String,
-            pub end_time: String,
+            pub start_time: String, // format RFC 3339: {year}-{month}-{day}T{hour}:{min}:{sec}[.{frac_sec}]Z
+            pub end_time: String,   // format RFC 3339: {year}-{month}-{day}T{hour}:{min}:{sec}[.{frac_sec}]Z
             pub user: Option<String>,
-            pub score: Option<f32>,
+            pub score: Option<i32>,
             pub answered_pages: u32,
             pub answered_questions: u32,
             pub answers: Vec<QuestionAnswer>,
@@ -125,14 +126,15 @@ pub mod persistence {
         pub struct HighscoreEntry {
             pub name: String,
             pub score: i32,
-            pub time: String,
+            pub time: String, // format RFC 3339: {year}-{month}-{day}T{hour}:{min}:{sec}[.{frac_sec}]Z
         }
 
         pub struct QuestionAnswer {
             pub question_id: String,
             pub question_title: String,
+            pub question_type: QuestionType,
             pub is_answered: bool,
-            pub answer: Answer,
+            pub answer: Option<Answer>,
         }
 
         pub enum Answer {
@@ -141,7 +143,7 @@ pub mod persistence {
             Text(String),
             Rating(i32),
             Likert(HashMap<String, String>),
-            Datetime(String),
+            Datetime(String), // format RFC 3339: {year}-{month}-{day}T{hour}:{min}:{sec}[.{frac_sec}]Z
             Slider(f32, Option<f32>),
         }
     }

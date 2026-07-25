@@ -24,32 +24,34 @@ enum SurveyType {
 }
 
 message SurveySummary {
+  // id of the survey. unique and specific for this server
+  string id = 1;
   // title of the survey. mandatory
-  string title = 1;
+  string title = 2;
   // description of the survey. mandatory
-  string description = 2;
+  string description = 3;
   // type of the survey. mandatory
-  SurveyType survey_type = 3;
+  SurveyType survey_type = 4;
   // activation state. Inactive surveys cannot have new results. mandatory
-  bool active = 4;
+  bool active = 5;
   // total pages in survey. mandatory
-  uint32 page_count = 5;
+  uint32 page_count = 6;
   // total questions in survey. mandatory
-  uint32 question_count = 6;
+  uint32 question_count = 7;
   // number of submits. mandatory
-  uint32 submit_count = 7;
+  uint32 submit_count = 8;
   // whether the survey has conditional elements. mandatory
-  bool conditionals = 8;
+  bool conditionals = 9;
   // when the first submit for the survey was. only set if the survey was answered. format RFC 3339: {year}-{month}-{day}T{hour}:{min}:{sec}[.{frac_sec}]Z
-  google.protobuf.Timestamp first_submit_time = 9;
+  google.protobuf.Timestamp first_submit_time = 10;
   // most recent submit for the survey. only set if the survey was answered. format RFC 3339: {year}-{month}-{day}T{hour}:{min}:{sec}[.{frac_sec}]Z
-  google.protobuf.Timestamp last_submit_time = 10;
+  google.protobuf.Timestamp last_submit_time = 11;
   // min score achieved. only available if survey type is quiz
-  optional int32 min_score = 11;
+  optional int32 min_score = 12;
   // min score achieved. only available if survey type is quiz
-  optional int32 max_score = 12;
+  optional int32 max_score = 13;
   // min score achieved. only available if survey type is quiz
-  optional float avg_score = 13;
+  optional float avg_score = 14;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +92,7 @@ message ListSurveysResponse {
 }
 
 message CreateSurveyRequest {
-  bytes zip_content = 1; // zip file contents. mandatory
+  bytes zip_content = 1; // zip file contents. expect config file named 'survey_config.yaml' in root of zip. mandatory
 }
 
 message CreateSurveyResponse {

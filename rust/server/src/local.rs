@@ -1,23 +1,28 @@
 //! Local persistence module
 
-use crate::shared::persistence::models::{Answer, HighscoreEntry, QuestionAnswer, SurveyResult, SurveySummary, SurveyType};
+use crate::shared::persistence::models::{Answer, HighscoreEntry, QuestionAnswer, QuestionType, SurveyResult, SurveySummary, SurveyType};
 use crate::shared::persistence::{PersistenceError, SurveyPersistenceClient};
 use rusqlite::{Connection, Row, params};
 use std::collections::HashMap;
 use std::io;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use tokio::fs;
 use tokio::fs::File;
 use uuid::Uuid;
 use zip::ZipArchive;
 
-pub async fn new(storage_folder: &str, db_folder: &str) -> Result<Arc<dyn SurveyPersistenceClient>, PersistenceError> {
-    //check storage folder exists and is writable directory
+pub async fn new(storage_folder: &str, db_folder: &str, no_create: bool) -> Result<Arc<dyn SurveyPersistenceClient>, PersistenceError> {
+    //check storage folder exists and is a writable directory
     let storage_path = Path::new(storage_folder);
     if !storage_path.exists() {
-        return Err(PersistenceError::NotFound(storage_folder.to_string()));
+        if no_create {
+            return Err(PersistenceError::NotFound(storage_folder.to_string()));
+        } else if let Err(e) = fs::create_dir_all(&storage_path).await {
+            return Err(PersistenceError::StorageError(e.to_string()));
+        }
     }
     if !storage_path.is_dir() {
         return Err(PersistenceError::NotADir(storage_folder.to_string()));
@@ -35,7 +40,11 @@ pub async fn new(storage_folder: &str, db_folder: &str) -> Result<Arc<dyn Survey
     //check db folder exists and init db
     let mut db_path = PathBuf::from(db_folder);
     if !db_path.exists() {
-        return Err(PersistenceError::NotFound(db_folder.to_string()));
+        if no_create {
+            return Err(PersistenceError::NotFound(db_folder.to_string()));
+        } else if let Err(e) = fs::create_dir_all(&db_path).await {
+            return Err(PersistenceError::StorageError(e.to_string()));
+        }
     }
     if !db_path.is_dir() {
         return Err(PersistenceError::NotADir(db_folder.to_string()));
@@ -181,7 +190,7 @@ impl SurveyPersistenceClient for LocalSurveyPersistenceClient {
                     last_submit_time: row.get("last_time")?,
                     min_score: row.get::<_, Option<i32>>("min_score")?,
                     max_score: row.get::<_, Option<i32>>("max_score")?,
-                    avg_score: row.get::<_, Option<f64>>("avg_score")?,
+                    avg_score: row.get::<_, Option<f32>>("avg_score")?,
                 })
             },
         )
@@ -189,6 +198,11 @@ impl SurveyPersistenceClient for LocalSurveyPersistenceClient {
             rusqlite::Error::QueryReturnedNoRows => PersistenceError::NotFound(id.to_string()),
             other => PersistenceError::DbError(other.to_string()),
         })
+    }
+
+    async fn survey_exist(&self, id: &str) -> Result<bool, PersistenceError> {
+        let conn = self.db_conn.lock().map_err(lock_err)?;
+        conn.query_one("SELECT EXISTS(SELECT 1 FROM surveys WHERE id = ?1)", [id], |row| row.get::<_, bool>(0)).map_err(db_err)
     }
 
     async fn list_surveys(&self, active: Option<bool>, survey_type: Option<SurveyType>) -> Result<Vec<SurveySummary>, PersistenceError> {
@@ -235,7 +249,7 @@ impl SurveyPersistenceClient for LocalSurveyPersistenceClient {
                     last_submit_time: row.get("last_submit")?,
                     min_score: row.get::<_, Option<i32>>("min_score")?,
                     max_score: row.get::<_, Option<i32>>("max_score")?,
-                    avg_score: row.get::<_, Option<f64>>("avg_score")?,
+                    avg_score: row.get::<_, Option<f32>>("avg_score")?,
                 })
             })
             .map_err(db_err)?
@@ -319,7 +333,7 @@ impl SurveyPersistenceClient for LocalSurveyPersistenceClient {
                     result_id,
                     qa.question_id,
                     qa.question_title,
-                    enc.question_type,
+                    qa.question_type.to_string(),
                     qa.is_answered,
                     enc.string_answer,
                     enc.int_answer,
@@ -379,11 +393,18 @@ impl SurveyPersistenceClient for LocalSurveyPersistenceClient {
                 });
             }
 
-            // Attach the answer carried by this row (NULL for answer-less results).
-            if let Some(answer) = decode_answer(row)?
-                && let Some(current) = results.last_mut()
+            // Attach the answer carried by this row if answer is set
+            if row
+                .get::<_, String>("question_id")
+                .and(row.get::<_, String>("question_title"))
+                .and(row.get::<_, String>("question_type"))
+                .and(row.get::<_, bool>("answered"))
+                .is_ok()
             {
-                current.answers.push(answer);
+                let answer = decode_answer(row)?;
+                if let Some(current) = results.last_mut() {
+                    current.answers.push(answer);
+                }
             }
         }
 
@@ -405,7 +426,15 @@ impl SurveyPersistenceClient for LocalSurveyPersistenceClient {
     async fn get_highscore(&self, id: &str, limit: u32) -> Result<Vec<HighscoreEntry>, PersistenceError> {
         let conn = self.db_conn.lock().map_err(lock_err)?;
 
-        let mut stmt = conn.prepare("SELECT user, score, end_time FROM results WHERE survey_Id = ?1 ORDER BY score DESC LIMIT ?2").map_err(db_err)?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT user, score, end_time \
+                                                    FROM results \
+                                                    WHERE survey_Id = ?1 AND score IS NOT NULL AND user IS NOT NULL \
+                                                    ORDER BY score DESC, end_time ASC \
+                                                    LIMIT ?2",
+            )
+            .map_err(db_err)?;
 
         let results = stmt
             .query_map(params![id, limit], |row| Ok(HighscoreEntry { name: row.get("user")?, score: row.get("score")?, time: row.get("end_time")? }))
@@ -431,8 +460,8 @@ fn lock_err(e: PoisonError<MutexGuard<Connection>>) -> PersistenceError {
     PersistenceError::Generic(e.to_string())
 }
 
+#[derive(Debug, PartialEq)]
 struct EncodedAnswer {
-    question_type: &'static str,
     string_answer: Option<String>,
     int_answer: Option<i32>,
     string_vec_answer: Option<String>,
@@ -442,97 +471,92 @@ struct EncodedAnswer {
 }
 
 impl EncodedAnswer {
-    fn empty(question_type: &'static str) -> Self {
-        EncodedAnswer {
-            question_type,
-            string_answer: None,
-            int_answer: None,
-            string_vec_answer: None,
-            string_map_answer: None,
-            float_answer1: None,
-            float_answer2: None,
-        }
+    fn empty() -> Self {
+        EncodedAnswer { string_answer: None, int_answer: None, string_vec_answer: None, string_map_answer: None, float_answer1: None, float_answer2: None }
     }
 }
 
 /// Map a typed [`Answer`] onto the columns of the `answers` table.
-fn encode_answer(answer: &Answer) -> EncodedAnswer {
+fn encode_answer(answer: &Option<Answer>) -> EncodedAnswer {
     match answer {
-        Answer::Data(s) => EncodedAnswer { string_answer: Some(s.clone()), ..EncodedAnswer::empty("Data") },
-        Answer::Text(s) => EncodedAnswer { string_answer: Some(s.clone()), ..EncodedAnswer::empty("Text") },
-        Answer::Datetime(s) => EncodedAnswer { string_answer: Some(s.clone()), ..EncodedAnswer::empty("Datetime") },
-        Answer::Rating(r) => EncodedAnswer { int_answer: Some(*r), ..EncodedAnswer::empty("Rating") },
-        Answer::Choice(v) => EncodedAnswer { string_vec_answer: Some(v.join(RECORD_SEP)), ..EncodedAnswer::empty("Choice") },
-        Answer::Likert(m) => EncodedAnswer {
+        None => EncodedAnswer::empty(),
+        Some(Answer::Data(s)) => EncodedAnswer { string_answer: Some(s.clone()), ..EncodedAnswer::empty() },
+        Some(Answer::Text(s)) => EncodedAnswer { string_answer: Some(s.clone()), ..EncodedAnswer::empty() },
+        Some(Answer::Datetime(s)) => EncodedAnswer { string_answer: Some(s.clone()), ..EncodedAnswer::empty() },
+        Some(Answer::Rating(r)) => EncodedAnswer { int_answer: Some(*r), ..EncodedAnswer::empty() },
+        Some(Answer::Choice(v)) => EncodedAnswer { string_vec_answer: Some(v.join(RECORD_SEP)), ..EncodedAnswer::empty() },
+        Some(Answer::Likert(m)) => EncodedAnswer {
             string_map_answer: Some(m.iter().map(|(k, v)| format!("{k}{UNIT_SEP}{v}")).collect::<Vec<_>>().join(RECORD_SEP)),
-            ..EncodedAnswer::empty("Likert")
+            ..EncodedAnswer::empty()
         },
-        Answer::Slider(a, b) => EncodedAnswer { float_answer1: Some(*a), float_answer2: *b, ..EncodedAnswer::empty("Slider") },
+        Some(Answer::Slider(a, b)) => EncodedAnswer { float_answer1: Some(*a), float_answer2: *b, ..EncodedAnswer::empty() },
     }
 }
 
 /// Reconstruct a typed [`QuestionAnswer`] from a result row.
-///
-/// Returns `None` when the row carries no answer
-fn decode_answer(row: &Row) -> Result<Option<QuestionAnswer>, PersistenceError> {
-    let Some(question_type) = row.get::<_, Option<String>>("question_type").map_err(db_err)? else {
-        return Ok(None);
+fn decode_answer(row: &Row) -> Result<QuestionAnswer, PersistenceError> {
+    let question_id = row.get("question_id").map_err(db_err)?;
+    let question_title = row.get("question_title").map_err(db_err)?;
+    let is_answered = row.get("answered").map_err(db_err)?;
+    let question_type = row.get::<_, String>("question_type").map_err(db_err)?;
+    let question_type = QuestionType::from_str(&question_type).map_err(|e| PersistenceError::Generic(e.to_string()))?;
+
+    let answer = if is_answered {
+        let ans = match question_type {
+            QuestionType::Data => {
+                let value = row.get::<_, Option<String>>("string_answer").map_err(db_err)?;
+                Answer::Data(value.ok_or_else(|| PersistenceError::DbError("answer of type 'Data' is missing required column 'string_answer'".to_string()))?)
+            },
+            QuestionType::Text => {
+                let value = row.get::<_, Option<String>>("string_answer").map_err(db_err)?;
+                Answer::Text(value.ok_or_else(|| PersistenceError::DbError("answer of type 'Text' is missing required column 'string_answer'".to_string()))?)
+            },
+            QuestionType::DateTime => {
+                let value = row.get::<_, Option<String>>("string_answer").map_err(db_err)?;
+                Answer::Datetime(
+                    value.ok_or_else(|| PersistenceError::DbError("answer of type 'Datetime' is missing required column 'string_answer'".to_string()))?,
+                )
+            },
+            QuestionType::Rating => {
+                let value = row.get::<_, Option<i32>>("int_answer").map_err(db_err)?;
+                Answer::Rating(value.ok_or_else(|| PersistenceError::DbError("answer of type 'Rating' is missing required column 'int_answer'".to_string()))?)
+            },
+            QuestionType::Choice => {
+                let value = row
+                    .get::<_, Option<String>>("string_vec_answer")
+                    .map_err(db_err)?
+                    .ok_or_else(|| PersistenceError::DbError("answer of type 'Choice' is missing required column 'string_vec_answer'".to_string()))?;
+                if value.is_empty() { Answer::Choice(Vec::new()) } else { Answer::Choice(value.split(RECORD_SEP).map(str::to_string).collect()) }
+            },
+            QuestionType::Likert => {
+                let value = row
+                    .get::<_, Option<String>>("string_map_answer")
+                    .map_err(db_err)?
+                    .ok_or_else(|| PersistenceError::DbError("answer of type 'Likert' is missing required column 'string_map_answer'".to_string()))?;
+                if value.is_empty() {
+                    Answer::Likert(HashMap::new())
+                } else {
+                    Answer::Likert(
+                        value.split(RECORD_SEP).filter_map(|entry| entry.split_once(UNIT_SEP).map(|(k, v)| (k.to_string(), v.to_string()))).collect(),
+                    )
+                }
+            },
+            QuestionType::Slider => {
+                let value = row.get::<_, Option<f32>>("float_answer1").map_err(db_err)?;
+                Answer::Slider(
+                    value.ok_or_else(|| PersistenceError::DbError("answer of type 'Slider' is missing required column 'float_answer1'".to_string()))?,
+                    // The upper bound of a slider answer is optional by design.
+                    row.get::<_, Option<f32>>("float_answer2").map_err(db_err)?,
+                )
+            },
+            other => return Err(PersistenceError::Generic(format!("unknown answer type: {other}"))),
+        };
+        Some(ans)
+    } else {
+        None
     };
 
-    let answer = match question_type.as_str() {
-        "Data" => {
-            let value = row.get::<_, Option<String>>("string_answer").map_err(db_err)?;
-            Answer::Data(value.ok_or_else(|| PersistenceError::DbError("answer of type 'Data' is missing required column 'string_answer'".to_string()))?)
-        },
-        "Text" => {
-            let value = row.get::<_, Option<String>>("string_answer").map_err(db_err)?;
-            Answer::Text(value.ok_or_else(|| PersistenceError::DbError("answer of type 'Text' is missing required column 'string_answer'".to_string()))?)
-        },
-        "Datetime" => {
-            let value = row.get::<_, Option<String>>("string_answer").map_err(db_err)?;
-            Answer::Datetime(
-                value.ok_or_else(|| PersistenceError::DbError("answer of type 'Datetime' is missing required column 'string_answer'".to_string()))?,
-            )
-        },
-        "Rating" => {
-            let value = row.get::<_, Option<i32>>("int_answer").map_err(db_err)?;
-            Answer::Rating(value.ok_or_else(|| PersistenceError::DbError("answer of type 'Rating' is missing required column 'int_answer'".to_string()))?)
-        },
-        "Choice" => {
-            let value = row
-                .get::<_, Option<String>>("string_vec_answer")
-                .map_err(db_err)?
-                .ok_or_else(|| PersistenceError::DbError("answer of type 'Choice' is missing required column 'string_vec_answer'".to_string()))?;
-            if value.is_empty() { Answer::Choice(Vec::new()) } else { Answer::Choice(value.split(RECORD_SEP).map(str::to_string).collect()) }
-        },
-        "Likert" => {
-            let value = row
-                .get::<_, Option<String>>("string_map_answer")
-                .map_err(db_err)?
-                .ok_or_else(|| PersistenceError::DbError("answer of type 'Likert' is missing required column 'string_map_answer'".to_string()))?;
-            if value.is_empty() {
-                Answer::Likert(HashMap::new())
-            } else {
-                Answer::Likert(value.split(RECORD_SEP).filter_map(|entry| entry.split_once(UNIT_SEP).map(|(k, v)| (k.to_string(), v.to_string()))).collect())
-            }
-        },
-        "Slider" => {
-            let value = row.get::<_, Option<f32>>("float_answer1").map_err(db_err)?;
-            Answer::Slider(
-                value.ok_or_else(|| PersistenceError::DbError("answer of type 'Slider' is missing required column 'float_answer1'".to_string()))?,
-                // The upper bound of a slider answer is optional by design.
-                row.get::<_, Option<f32>>("float_answer2").map_err(db_err)?,
-            )
-        },
-        other => return Err(PersistenceError::Generic(format!("unknown answer type: {other}"))),
-    };
-
-    Ok(Some(QuestionAnswer {
-        question_id: row.get("question_id").map_err(db_err)?,
-        question_title: row.get("question_title").map_err(db_err)?,
-        is_answered: row.get("answered").map_err(db_err)?,
-        answer,
-    }))
+    Ok(QuestionAnswer { question_id, question_title, question_type, is_answered, answer })
 }
 
 fn has_conditionals(config: &survey_tool_cli::SurveyConfig) -> bool {
@@ -609,8 +633,8 @@ mod tests {
         .unwrap();
     }
 
-    fn qa(id: &str, answered: bool, answer: Answer) -> QuestionAnswer {
-        QuestionAnswer { question_id: id.to_string(), question_title: format!("title-{id}"), is_answered: answered, answer }
+    fn qa(id: &str, qtype: QuestionType, answered: bool, answer: Option<Answer>) -> QuestionAnswer {
+        QuestionAnswer { question_id: id.to_string(), question_title: format!("title-{id}"), question_type: qtype, is_answered: answered, answer }
     }
 
     /// Build an in-memory zip archive containing the survey config yaml plus one page.
@@ -635,33 +659,32 @@ mod tests {
 
     #[test]
     fn encode_answer_maps_each_variant_to_the_right_columns() {
-        let text = encode_answer(&Answer::Text("hello".to_string()));
-        assert_eq!(text.question_type, "Text");
+        let empty = encode_answer(&None);
+        assert_eq!(empty, EncodedAnswer::empty());
+
+        let text = encode_answer(&Some(Answer::Text("hello".to_string())));
+
         assert_eq!(text.string_answer.as_deref(), Some("hello"));
         assert_eq!(text.int_answer, None);
 
-        let rating = encode_answer(&Answer::Rating(4));
-        assert_eq!(rating.question_type, "Rating");
+        let rating = encode_answer(&Some(Answer::Rating(4)));
         assert_eq!(rating.int_answer, Some(4));
         assert_eq!(rating.string_answer, None);
 
         // Collection answers are flattened using the record separator.
-        let choice = encode_answer(&Answer::Choice(vec!["a".to_string(), "b".to_string()]));
-        assert_eq!(choice.question_type, "Choice");
+        let choice = encode_answer(&Some(Answer::Choice(vec!["a".to_string(), "b".to_string()])));
         assert_eq!(choice.string_vec_answer.as_deref(), Some("a\u{1e}b"));
 
         // A single-entry map keeps the assertion deterministic (unit + record separators).
-        let likert = encode_answer(&Answer::Likert(HashMap::from([("s1".to_string(), "agree".to_string())])));
-        assert_eq!(likert.question_type, "Likert");
+        let likert = encode_answer(&Some(Answer::Likert(HashMap::from([("s1".to_string(), "agree".to_string())]))));
         assert_eq!(likert.string_map_answer.as_deref(), Some("s1\u{1f}agree"));
 
-        let slider = encode_answer(&Answer::Slider(0.5, Some(1.5)));
-        assert_eq!(slider.question_type, "Slider");
+        let slider = encode_answer(&Some(Answer::Slider(0.5, Some(1.5))));
         assert_eq!(slider.float_answer1, Some(0.5));
         assert_eq!(slider.float_answer2, Some(1.5));
 
         // The upper slider bound is optional.
-        let slider_open = encode_answer(&Answer::Slider(2.0, None));
+        let slider_open = encode_answer(&Some(Answer::Slider(2.0, None)));
         assert_eq!(slider_open.float_answer1, Some(2.0));
         assert_eq!(slider_open.float_answer2, None);
     }
@@ -676,16 +699,17 @@ mod tests {
         let client = client_with_storage(&storage);
 
         let answers = vec![
-            qa("q0", true, Answer::Data("participant".to_string())),
-            qa("q1", true, Answer::Text("free text".to_string())),
-            qa("q2", true, Answer::Datetime("2024-01-02T03:04:05".to_string())),
-            qa("q3", true, Answer::Rating(4)),
-            qa("q4", true, Answer::Choice(vec!["x".to_string(), "y".to_string()])),
-            qa("q5", false, Answer::Choice(Vec::new())),
-            qa("q6", true, Answer::Likert(HashMap::from([("s1".to_string(), "agree".to_string())]))),
-            qa("q7", false, Answer::Likert(HashMap::new())),
-            qa("q8", true, Answer::Slider(0.5, Some(1.5))),
-            qa("q9", true, Answer::Slider(2.0, None)),
+            qa("q0", QuestionType::Data, true, Some(Answer::Data("participant".to_string()))),
+            qa("q1", QuestionType::Text, true, Some(Answer::Text("free text".to_string()))),
+            qa("q2", QuestionType::DateTime, true, Some(Answer::Datetime("2024-01-02T03:04:05".to_string()))),
+            qa("q3", QuestionType::Rating, true, Some(Answer::Rating(4))),
+            qa("q4", QuestionType::Choice, true, Some(Answer::Choice(vec!["x".to_string(), "y".to_string()]))),
+            qa("q5", QuestionType::Choice, true, Some(Answer::Choice(Vec::new()))),
+            qa("q6", QuestionType::Likert, true, Some(Answer::Likert(HashMap::from([("s1".to_string(), "agree".to_string())])))),
+            qa("q7", QuestionType::Likert, true, Some(Answer::Likert(HashMap::new()))),
+            qa("q8", QuestionType::Slider, true, Some(Answer::Slider(0.5, Some(1.5)))),
+            qa("q9", QuestionType::Slider, true, Some(Answer::Slider(2.0, None))),
+            qa("q10", QuestionType::Rating, false, Some(Answer::Rating(4))),
         ];
 
         let result = SurveyResult {
@@ -693,7 +717,7 @@ mod tests {
             start_time: "start".to_string(),
             end_time: "end".to_string(),
             user: Some("alice".to_string()),
-            score: Some(7.5),
+            score: Some(7),
             answered_pages: 2,
             answered_questions: 8,
             answers,
@@ -708,26 +732,27 @@ mod tests {
         // Result-level fields survive the round trip.
         assert_eq!(r.origin, "web");
         assert_eq!(r.user.as_deref(), Some("alice"));
-        assert_eq!(r.score, Some(7.5));
+        assert_eq!(r.score, Some(7));
         assert_eq!(r.answered_pages, 2);
         assert_eq!(r.answered_questions, 8);
 
         // Answers come back in insertion order (ORDER BY a.id).
-        assert_eq!(r.answers.len(), 10);
-        assert!(matches!(&r.answers[0].answer, Answer::Data(s) if s == "participant"));
-        assert!(matches!(&r.answers[1].answer, Answer::Text(s) if s == "free text"));
-        assert!(matches!(&r.answers[2].answer, Answer::Datetime(s) if s == "2024-01-02T03:04:05"));
-        assert!(matches!(&r.answers[3].answer, Answer::Rating(4)));
-        assert!(matches!(&r.answers[4].answer, Answer::Choice(v) if v == &vec!["x".to_string(), "y".to_string()]));
-        assert!(matches!(&r.answers[5].answer, Answer::Choice(v) if v.is_empty()));
-        assert!(matches!(&r.answers[6].answer, Answer::Likert(m) if m.get("s1").map(String::as_str) == Some("agree")));
-        assert!(matches!(&r.answers[7].answer, Answer::Likert(m) if m.is_empty()));
-        assert!(matches!(&r.answers[8].answer, Answer::Slider(a, Some(b)) if *a == 0.5 && *b == 1.5));
-        assert!(matches!(&r.answers[9].answer, Answer::Slider(a, None) if *a == 2.0));
+        assert_eq!(r.answers.len(), 11);
+        assert!(matches!(&r.answers[0].answer, Some(Answer::Data(s)) if s == "participant"));
+        assert!(matches!(&r.answers[1].answer, Some(Answer::Text(s)) if s == "free text"));
+        assert!(matches!(&r.answers[2].answer, Some(Answer::Datetime(s)) if s == "2024-01-02T03:04:05"));
+        assert!(matches!(&r.answers[3].answer, Some(Answer::Rating(4))));
+        assert!(matches!(&r.answers[4].answer, Some(Answer::Choice(v)) if v == &vec!["x".to_string(), "y".to_string()]));
+        assert!(matches!(&r.answers[5].answer, Some(Answer::Choice(v)) if v.is_empty()));
+        assert!(matches!(&r.answers[6].answer, Some(Answer::Likert(m)) if m.get("s1").map(String::as_str) == Some("agree")));
+        assert!(matches!(&r.answers[7].answer, Some(Answer::Likert(m)) if m.is_empty()));
+        assert!(matches!(&r.answers[8].answer, Some(Answer::Slider(a, Some(b))) if *a == 0.5 && *b == 1.5));
+        assert!(matches!(&r.answers[9].answer, Some(Answer::Slider(a, None)) if *a == 2.0));
+        assert!(r.answers[10].answer.is_none());
 
         // The is_answered flag is preserved per answer.
         assert!(r.answers[0].is_answered);
-        assert!(!r.answers[5].is_answered);
+        assert!(!r.answers[10].is_answered);
         assert_eq!(r.answers[0].question_title, "title-q0");
     }
 
@@ -744,7 +769,7 @@ mod tests {
             score: None,
             answered_pages: 1,
             answered_questions: 2,
-            answers: vec![qa("a", true, Answer::Rating(1)), qa("b", true, Answer::Text("t".to_string()))],
+            answers: vec![qa("a", QuestionType::Rating, true, Some(Answer::Rating(1))), qa("b", QuestionType::Text, true, Some(Answer::Text("t".to_string())))],
         };
         let without_answers = SurveyResult {
             origin: "cli".to_string(),
@@ -1009,14 +1034,14 @@ mod tests {
     async fn new_succeeds_for_writable_directories() {
         let storage = TempDir::new();
         let db = TempDir::new();
-        let client = new(storage.as_str(), db.as_str()).await.unwrap();
+        let client = new(storage.as_str(), db.as_str(), true).await.unwrap();
         assert!(client.list_surveys(None, None).await.unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn new_fails_when_storage_folder_is_missing() {
         let db = TempDir::new();
-        match new("this/path/does/not/exist", db.as_str()).await {
+        match new("this/path/does/not/exist", db.as_str(), true).await {
             Err(PersistenceError::NotFound(_)) => {},
             _ => panic!("expected NotFound for missing storage folder"),
         }

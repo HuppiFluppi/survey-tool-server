@@ -19,14 +19,14 @@ tonic-prost = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 tokio = { workspace = true, features = ["fs"] }
-clap = { version = "4.6.1", features = ["derive", "env", "cargo"] }
-strum = { version = "0.28.0", features = ["derive"] }
-aws-config = { version = "1.1.7", features = ["behavior-version-latest"], optional = true }
-aws-sdk-s3files = { version = "1.7.0", optional = true }
-aws-sdk-dynamodb = { version = "1.117.0", optional = true }
-rusqlite = { version = "0.40.1", features = ["bundled"], optional = true }
-uuid = { version = "1.24.0", features = ["v4"] }
-zip = "8.6.0"
+clap = { version = "4.6", features = ["derive", "env", "cargo"] }
+strum = { version = "0.28", features = ["derive"] }
+aws-config = { version = "1.10", features = ["behavior-version-latest"], optional = true }
+aws-sdk-s3files = { version = "1.9", optional = true }
+aws-sdk-dynamodb = { version = "1.119", optional = true }
+rusqlite = { version = "0.40", features = ["bundled"], optional = true }
+uuid = { version = "1.24", features = ["v4"] }
+zip = "8.6"
 survey-tool-cli = { git = "https://github.com/HuppiFluppi/survey-tool-cli.git" }
 
 [build-dependencies]

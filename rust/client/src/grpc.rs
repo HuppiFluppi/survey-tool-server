@@ -36,7 +36,7 @@ impl SurveyApiClient {
         })
     }
 
-    pub async fn with_options(destination: &str, tls: GrpcTlsSetting, auth: GrpcAuthSetting) -> Result<SurveyApiClient, SurveyApiClientError> {
+    pub async fn with_options(destination: &str, auth: GrpcAuthSetting) -> Result<SurveyApiClient, SurveyApiClientError> {
         let tls_conf = tonic::transport::ClientTlsConfig::new().with_enabled_roots();
         let channel = tonic::transport::Channel::from_shared(destination.to_owned())?.tls_config(tls_conf)?.connect().await?;
 
@@ -139,7 +139,7 @@ impl SurveyApiClient {
 
         let response = self.survey_data_client.get_survey_summary(req).await?;
 
-        Ok(response.into_inner().summary.unwrap())
+        Ok(response.into_inner().summary.expect("summary must always be set"))
     }
 
     pub async fn get_survey_highscore(&mut self, survey_id: String, limit: Option<u32>) -> SACResult<Vec<HighscoreEntry>> {
@@ -155,14 +155,6 @@ impl SurveyApiClient {
 pub enum GrpcAuthSetting {
     None,
     Simple { user: String, pass: String },
-}
-
-pub struct GrpcTlsSetting {}
-
-impl GrpcTlsSetting {
-    pub fn off() -> Self {
-        GrpcTlsSetting {}
-    }
 }
 
 // --- Error model
