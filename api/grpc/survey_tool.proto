@@ -48,9 +48,9 @@ message SurveySummary {
   google.protobuf.Timestamp last_submit_time = 11;
   // min score achieved. only available if survey type is quiz
   optional int32 min_score = 12;
-  // min score achieved. only available if survey type is quiz
+  // max score achieved. only available if survey type is quiz
   optional int32 max_score = 13;
-  // min score achieved. only available if survey type is quiz
+  // avg score achieved. only available if survey type is quiz
   optional float avg_score = 14;
 }
 

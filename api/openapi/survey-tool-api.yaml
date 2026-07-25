@@ -369,6 +369,7 @@ components:
     SurveySummary:
       type: object
       required:
+        - id
         - title
         - description
         - survey_type
@@ -378,6 +379,8 @@ components:
         - conditionals
         - submit_count
       properties:
+        id:
+          $ref: '#/components/schemas/SurveyId'
         title:
           type: string
           minLength: 3
