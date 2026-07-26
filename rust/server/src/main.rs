@@ -1,3 +1,10 @@
+//! Survey tool server binary.
+//!
+//! Parses CLI/environment configuration (auth, TLS, persistence), builds the
+//! selected persistence backend and starts every enabled transport
+//! (`grpc`, `rest`) concurrently. Transports and backends are gated behind
+//! cargo features so the binary can be tailored at compile time.
+
 use crate::shared::persistence::{PersistenceError, SurveyPersistenceClient};
 use crate::shared::server::{AuthSetting, TlsSetting};
 use clap::error::ErrorKind;
@@ -21,6 +28,7 @@ mod local;
 
 mod shared;
 
+/// Top-level command line / environment options for the server.
 #[derive(Debug, Parser)]
 #[command(version, about, long_about = None)]
 struct Opt {
@@ -44,6 +52,7 @@ struct Opt {
     persistence: CliPersistenceSetting,
 }
 
+/// Persistence backend selection and its per-backend (local/aws) parameters.
 #[derive(Args, Debug)]
 struct CliPersistenceSetting {
     /// Persistence type
@@ -83,6 +92,7 @@ struct CliPersistenceSetting {
     persistence_local_no_create: bool,
 }
 
+/// Authentication mode plus the `user:pass:roles;...` config string for simple auth.
 #[derive(Args, Debug)]
 struct CliAuthSetting {
     /// Type of auth
@@ -95,6 +105,7 @@ struct CliAuthSetting {
     auth_config: Option<String>,
 }
 
+/// TLS mode plus the certificate/key file paths used for PEM TLS.
 #[derive(Args, Debug)]
 struct CliTlsSetting {
     /// Tls setting
@@ -110,6 +121,7 @@ struct CliTlsSetting {
     tls_key_pem_file: Option<String>,
 }
 
+/// Selectable persistence backend; variants are gated by cargo feature.
 #[derive(Debug, Clone, ValueEnum)]
 enum CliPersistenceType {
     /// Local setup. Save files and db to filesystem
@@ -120,6 +132,7 @@ enum CliPersistenceType {
     AWS,
 }
 
+/// Selectable authentication mode.
 #[derive(Debug, Clone, ValueEnum)]
 enum CliAuthType {
     /// Disable authentication
@@ -128,6 +141,7 @@ enum CliAuthType {
     Simple,
 }
 
+/// Selectable TLS mode.
 #[derive(Debug, Clone, ValueEnum)]
 enum CliTlsType {
     /// Turn TLS off
@@ -136,6 +150,7 @@ enum CliTlsType {
     Pem,
 }
 
+/// Parse configuration, build persistence and run all enabled transports until they finish.
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // --- init config & setup
@@ -179,6 +194,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// Print the startup banner listing version and compiled-in features.
 fn welcome_banner() {
     let mut features = Vec::new();
     if cfg!(feature = "grpc") {
@@ -201,6 +217,9 @@ fn welcome_banner() {
     println!("|>--------------------------------------------------------<|");
 }
 
+/// Resolve the [`TlsSetting`], reading the PEM files for `Pem` mode.
+///
+/// Exits the process with a CLI error on invalid combinations or unreadable files.
 async fn get_tls_setting(tls: &CliTlsSetting) -> TlsSetting {
     match (&tls.tls_setting, &tls.tls_cert_pem_file, &tls.tls_key_pem_file) {
         (CliTlsType::Off, _, _) => TlsSetting::off(),
@@ -219,6 +238,9 @@ async fn get_tls_setting(tls: &CliTlsSetting) -> TlsSetting {
     }
 }
 
+/// Resolve the [`AuthSetting`], parsing the `user:pass:roles;...` config for simple auth.
+///
+/// Exits the process with a CLI error on malformed entries or unknown roles.
 fn get_auth_setting(auth: &CliAuthSetting) -> AuthSetting {
     match (&auth.auth_setting, &auth.auth_config) {
         (CliAuthType::None, _) => AuthSetting::None,
@@ -247,6 +269,7 @@ fn get_auth_setting(auth: &CliAuthSetting) -> AuthSetting {
     }
 }
 
+/// Construct the persistence backend selected by `persistence_type` as a shared trait object.
 async fn setup_persistence(persistence: &CliPersistenceSetting) -> Result<Arc<dyn SurveyPersistenceClient>, PersistenceError> {
     match persistence.persistence_type {
         #[cfg(feature = "local")]

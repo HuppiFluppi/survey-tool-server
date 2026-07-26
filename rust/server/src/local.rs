@@ -1,4 +1,11 @@
-//! Local persistence module
+//! Local persistence backend.
+//!
+//! Implements [`SurveyPersistenceClient`] by storing survey bundles as files on
+//! disk and their metadata/results in a bundled SQLite database. Typed
+//! [`Answer`] values are flattened across the columns of the `answers` table;
+//! collection answers are encoded with ASCII record/unit separators (see
+//! [`encode_answer`]/[`decode_answer`]). The single connection is guarded by a
+//! [`Mutex`] since `rusqlite` connections are not `Sync`.
 
 use crate::shared::persistence::models::{Answer, HighscoreEntry, QuestionAnswer, QuestionType, SurveyResult, SurveySummary, SurveyType};
 use crate::shared::persistence::{PersistenceError, SurveyPersistenceClient};
@@ -14,6 +21,10 @@ use tokio::fs::File;
 use uuid::Uuid;
 use zip::ZipArchive;
 
+/// Build a local persistence client.
+///
+/// Validates that the storage and DB folders exist and are writable (creating
+/// them unless `no_create` is set), then opens/initializes the SQLite database.
 pub async fn new(storage_folder: &str, db_folder: &str, no_create: bool) -> Result<Arc<dyn SurveyPersistenceClient>, PersistenceError> {
     //check storage folder exists and is a writable directory
     let storage_path = Path::new(storage_folder);
@@ -54,6 +65,7 @@ pub async fn new(storage_folder: &str, db_folder: &str, no_create: bool) -> Resu
     Ok(Arc::new(LocalSurveyPersistenceClient { storage_path: storage_folder.to_string(), db_conn: Mutex::new(init_db(&db_path)?) }))
 }
 
+/// Schema for the three tables (`surveys`, `results`, `answers`) plus their indexes, created if absent.
 const DB_INIT: &str = "CREATE TABLE IF NOT EXISTS surveys (
                             id TEXT NOT NULL PRIMARY KEY,
                             name TEXT NOT NULL,
@@ -94,12 +106,14 @@ const DB_INIT: &str = "CREATE TABLE IF NOT EXISTS surveys (
                         CREATE INDEX IF NOT EXISTS answer_survey_result_index ON answers (survey_id, result_id);
                         ";
 
+/// Open the SQLite database at `db_path` and apply the [`DB_INIT`] schema.
 fn init_db(db_path: &Path) -> Result<Connection, PersistenceError> {
     let conn = Connection::open(db_path).map_err(db_err)?;
     conn.execute_batch(DB_INIT).map_err(db_err)?;
     Ok(conn)
 }
 
+/// Local [`SurveyPersistenceClient`]: bundle files under `storage_path`, metadata in the mutex-guarded SQLite `db_conn`.
 #[derive(Debug)]
 pub struct LocalSurveyPersistenceClient {
     storage_path: String,
@@ -456,10 +470,13 @@ fn db_err(e: rusqlite::Error) -> PersistenceError {
     PersistenceError::DbError(e.to_string())
 }
 
+/// Map a poisoned connection mutex into a [`PersistenceError::Generic`].
 fn lock_err(e: PoisonError<MutexGuard<Connection>>) -> PersistenceError {
     PersistenceError::Generic(e.to_string())
 }
 
+/// Column values of the `answers` table for one answer; exactly the columns
+/// matching the answer variant are `Some`, the rest are `None`.
 #[derive(Debug, PartialEq)]
 struct EncodedAnswer {
     string_answer: Option<String>,
@@ -559,6 +576,7 @@ fn decode_answer(row: &Row) -> Result<QuestionAnswer, PersistenceError> {
     Ok(QuestionAnswer { question_id, question_title, question_type, is_answered, answer })
 }
 
+/// Report whether any page or content item in the config carries a conditional.
 fn has_conditionals(config: &survey_tool_cli::SurveyConfig) -> bool {
     for page in &config.pages {
         if page.conditional.is_some() {

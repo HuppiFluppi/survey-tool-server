@@ -1,4 +1,8 @@
-//! Grpc client module
+//! gRPC transport for the survey tool server.
+//!
+//! Implements the three generated tonic services on [`SurveyApiServer`], enforces
+//! the role-based auth model per method and converts between the persistence
+//! domain model and the wire types (including [`PersistenceError`] -> [`Status`]).
 
 // make the generated proto/grpc code available to this library
 mod grpc_survey_api {
@@ -17,12 +21,14 @@ use std::str::FromStr;
 use std::sync::Arc;
 use tonic::{transport::Server, Request, Response, Status};
 
+/// gRPC server holding the shared persistence backend and the active auth policy.
 pub struct SurveyApiServer {
     persistence: Arc<dyn SurveyPersistenceClient>,
     auth_setting: AuthSetting,
 }
 
 impl SurveyApiServer {
+    /// Serve all three services on `address` with authentication and TLS disabled.
     pub async fn serve(address: SocketAddr, persistence: Arc<dyn SurveyPersistenceClient>) -> Result<(), tonic::transport::Error> {
         let server = Arc::new(SurveyApiServer { persistence, auth_setting: AuthSetting::None });
 
@@ -36,6 +42,7 @@ impl SurveyApiServer {
         Ok(())
     }
 
+    /// Serve all three services on `address` with the given auth and TLS configuration.
     pub async fn serve_with_config(
         address: SocketAddr,
         persistence: Arc<dyn SurveyPersistenceClient>,
@@ -63,6 +70,11 @@ impl SurveyApiServer {
         Ok(())
     }
 
+    /// Authorize a request against `allowed_roles`.
+    ///
+    /// Returns `Unauthenticated` when credentials are missing or unknown and
+    /// `PermissionDenied` when the caller holds none of the allowed roles.
+    /// Always succeeds when auth is disabled.
     fn check_auth<T>(&self, req: &Request<T>, allowed_roles: &[Roles]) -> Result<(), Status> {
         match &self.auth_setting {
             AuthSetting::None => Ok(()),
@@ -86,6 +98,7 @@ impl SurveyApiServer {
 //--- SurveyService methods
 #[tonic::async_trait]
 impl SurveyService for SurveyApiServer {
+    /// List surveys (requires `User`), translating the optional wire type filter to the domain type.
     async fn list_surveys(&self, request: Request<api::ListSurveysRequest>) -> Result<Response<api::ListSurveysResponse>, Status> {
         const ROLES: &[Roles] = &[Roles::User];
         self.check_auth(&request, ROLES)?;
@@ -103,6 +116,7 @@ impl SurveyService for SurveyApiServer {
         }
     }
 
+    /// Store an uploaded survey bundle and return its id (requires `Admin`).
     async fn create_survey(&self, request: Request<api::CreateSurveyRequest>) -> Result<Response<api::CreateSurveyResponse>, Status> {
         const ROLES: &[Roles] = &[Roles::Admin];
         self.check_auth(&request, ROLES)?;
@@ -112,6 +126,10 @@ impl SurveyService for SurveyApiServer {
         Ok(Response::new(api::CreateSurveyResponse { survey_id }))
     }
 
+    /// Download a survey bundle.
+    ///
+    /// `User` may fetch active surveys; inactive surveys require `Admin` and are
+    /// otherwise reported as `PermissionDenied` to avoid leaking their existence.
     async fn get_survey(&self, request: Request<api::GetSurveyRequest>) -> Result<Response<api::GetSurveyResponse>, Status> {
         const ROLES_INACTIVE: &[Roles] = &[Roles::Admin];
         const ROLES_ACTIVE: &[Roles] = &[Roles::User];
@@ -127,6 +145,7 @@ impl SurveyService for SurveyApiServer {
         Ok(Response::new(api::GetSurveyResponse { zip_content }))
     }
 
+    /// Delete a survey and its data (requires `Admin`).
     async fn delete_survey(&self, request: Request<api::DeleteSurveyRequest>) -> Result<Response<api::DeleteSurveyResponse>, Status> {
         const ROLES: &[Roles] = &[Roles::Admin];
         self.check_auth(&request, ROLES)?;
@@ -135,6 +154,7 @@ impl SurveyService for SurveyApiServer {
         Ok(Response::new(api::DeleteSurveyResponse {}))
     }
 
+    /// Toggle a survey's active flag (requires `Admin`).
     async fn set_survey_active(&self, request: Request<api::SetSurveyActiveRequest>) -> Result<Response<api::SetSurveyActiveResponse>, Status> {
         const ROLES: &[Roles] = &[Roles::Admin];
         self.check_auth(&request, ROLES)?;
@@ -147,6 +167,7 @@ impl SurveyService for SurveyApiServer {
 //--- SurveyResultsService
 #[tonic::async_trait]
 impl SurveyResultsService for SurveyApiServer {
+    /// Return all results of a survey (requires `Admin`).
     async fn get_results(&self, request: Request<api::GetResultsRequest>) -> Result<Response<api::GetResultsResponse>, Status> {
         const ROLES: &[Roles] = &[Roles::Admin];
         self.check_auth(&request, ROLES)?;
@@ -155,6 +176,9 @@ impl SurveyResultsService for SurveyApiServer {
         Ok(Response::new(api::GetResultsResponse { results: results.into_iter().map(api::SurveyResult::try_from).collect::<Result<Vec<_>, _>>()? }))
     }
 
+    /// Submit a result (requires `User`).
+    ///
+    /// Rejects a missing payload with `InvalidArgument` and an inactive survey with `PermissionDenied`.
     async fn add_result(&self, request: Request<api::AddResultRequest>) -> Result<Response<api::AddResultResponse>, Status> {
         const ROLES: &[Roles] = &[Roles::User];
         self.check_auth(&request, ROLES)?;
@@ -175,6 +199,7 @@ impl SurveyResultsService for SurveyApiServer {
         Ok(Response::new(api::AddResultResponse {}))
     }
 
+    /// Delete all results of a survey (requires `Admin`).
     async fn delete_results(&self, request: Request<api::DeleteResultsRequest>) -> Result<Response<api::DeleteResultsResponse>, Status> {
         const ROLES: &[Roles] = &[Roles::Admin];
         self.check_auth(&request, ROLES)?;
@@ -188,6 +213,7 @@ impl SurveyResultsService for SurveyApiServer {
 //--- SurveyDataService
 #[tonic::async_trait]
 impl SurveyDataService for SurveyApiServer {
+    /// Return the aggregate summary of a survey (requires `User`).
     async fn get_survey_summary(&self, request: Request<api::GetSurveySummaryRequest>) -> Result<Response<api::GetSurveySummaryResponse>, Status> {
         const ROLES: &[Roles] = &[Roles::User];
         self.check_auth(&request, ROLES)?;
@@ -196,6 +222,9 @@ impl SurveyDataService for SurveyApiServer {
         Ok(Response::new(api::GetSurveySummaryResponse { summary: Some(summary.try_into()?) }))
     }
 
+    /// Return the highscore of a quiz (requires `User`).
+    ///
+    /// Returns `NotFound` for unknown surveys; `limit` defaults to 10 when unset.
     async fn get_highscore(&self, request: Request<api::GetHighscoreRequest>) -> Result<Response<api::GetHighscoreResponse>, Status> {
         const ROLES: &[Roles] = &[Roles::User];
         self.check_auth(&request, ROLES)?;
@@ -212,6 +241,7 @@ impl SurveyDataService for SurveyApiServer {
 //--- Persistence <> gRPC model conversions
 
 impl From<PersistenceError> for Status {
+    /// Map persistence failures onto gRPC status codes (`NotFound` is preserved, the rest become `internal`).
     fn from(value: PersistenceError) -> Self {
         match value {
             PersistenceError::Generic(s) => Status::internal(s),
@@ -375,6 +405,10 @@ impl TryFrom<api::QuestionType> for persistence::QuestionType {
     }
 }
 
+/// Validate and convert a wire answer into the persistence [`Answer`](persistence::Answer).
+///
+/// Enforces that the answer variant matches the declared question type; any
+/// mismatch (or an answer under an unspecified type) yields `InvalidArgument`.
 fn map_proto_answer_to_persistence(qtype: api::QuestionType, ans: Option<api::question_answer::Answer>) -> Result<Option<persistence::Answer>, Status> {
     match (ans, qtype) {
         (None, _) => Ok(None),
