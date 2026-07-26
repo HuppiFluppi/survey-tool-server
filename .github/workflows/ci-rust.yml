@@ -1,0 +1,44 @@
+# This workflow builds and tests the survey tool server Rust part
+name: CI-Rust
+on:
+  # Triggers the workflow on push or pull request events but only for the "master" branch and rust subfolder
+  push:
+    branches: [ "master" ]
+    paths:
+      - 'rust/**'
+  pull_request:
+    branches: [ "master" ]
+    paths:
+      - 'rust/**'
+
+  # Allows to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./rust
+    steps:
+      - uses: actions/checkout@v7
+      - name: Cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Prep
+        run: sudo apt-get -y install protobuf-compiler
+      - name: Build
+        run: |
+          rustup --version
+          cargo build --verbose --locked
+      - name: Test
+        run: cargo test --verbose --locked
