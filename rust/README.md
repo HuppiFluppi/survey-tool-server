@@ -7,11 +7,11 @@ yet implemented (see [Caveats](#caveats)).
 
 ## Workspace layout
 
-| Crate / path        | Description |
-|---------------------| --- |
-| [`server/`](server) | `survey-tool-server` binary. Serves the gRPC API and owns the persistence layer. |
+| Crate / path        | Description                                                                                     |
+|---------------------|-------------------------------------------------------------------------------------------------|
+| [`server/`](server) | `survey-tool-server` binary. Serves the gRPC API and owns the persistence layer.                |
 | [`client/`](client) | `survey-tool-api-client` library. A thin, typed async wrapper around the generated gRPC client. |
-| [`test/`](test)     | Cross-crate / integration test scratch space. |
+| [`test/`](test)     | Cross-crate / integration tests.                                                                |
 
 Both crates generate their gRPC bindings at build time from `../../api/grpc/survey_tool.proto`
 via `tonic-prost-build` (see the respective `build.rs`).
@@ -70,23 +70,23 @@ Run `cargo run -p survey-tool-server -- --help` for the authoritative list. The 
 ```
 
 - Entries are separated by `;`, fields by `:`, and roles by `,`.
-- Valid roles are `ADMIN` and `USER` (case-sensitive).
+- Valid roles are `Admin` and `User` (case-sensitive).
 - Over gRPC the client sends the chosen credentials as `user` / `pass` request metadata.
 
 Role requirements per operation:
 
 | Role    | Operations                                                                                  |
 |---------|---------------------------------------------------------------------------------------------|
-| `USER`  | list surveys, get an **active** survey, get summary, get highscore, add a result            |
-| `ADMIN` | create / delete a survey, set active flag, get an **inactive** survey, get / delete results |
+| `User`  | list surveys, get an **active** survey, get summary, get highscore, add a result            |
+| `Admin` | create / delete a survey, set active flag, get an **inactive** survey, get / delete results |
 
 > **Good to know**
 > - Credentials travel in plaintext metadata, so combine `simple` auth with `pem` TLS for any
 >   non-local deployment.
 > - A password containing `:` cannot be expressed in `--auth-config` (the `:` is the field
 >   delimiter).
-> - Roles are not including *lower* roles. That means ADMIN role is not including USER and reading a survey requires the `USER` role even for admins. 
-> - Grant `ADMIN,USER` to accounts that need both.
+> - Roles are not including *lower* roles. That means Admin role is not including User and reading a survey requires the `User` role even for admins. 
+> - Grant `Admin,User` to accounts that need both.
 
 ### Local persistence details
 

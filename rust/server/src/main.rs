@@ -325,7 +325,7 @@ mod tests {
     fn auth_none_yields_none_variant() {
         // The config value is irrelevant when auth is disabled.
         let setting = CliAuthType::None;
-        let config = Some("ignored:ignored:ADMIN");
+        let config = Some("ignored:ignored:Admin");
         let result = get_auth_setting(&CliAuthSetting { auth_setting: setting, auth_config: config.map(str::to_string) });
         assert!(matches!(result, AuthSetting::None));
     }
@@ -333,7 +333,7 @@ mod tests {
     #[test]
     fn auth_simple_parses_user_password_key_and_multiple_roles() {
         let setting = CliAuthType::Simple;
-        let config = Some("alice:secret:ADMIN,USER");
+        let config = Some("alice:secret:Admin,User");
         let result = get_auth_setting(&CliAuthSetting { auth_setting: setting, auth_config: config.map(str::to_string) });
 
         let AuthSetting::Simple { auth_mapping } = result else { panic!("expected simple auth") };
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn auth_simple_parses_multiple_entries() {
         let setting = CliAuthType::Simple;
-        let config = Some("alice:pw1:ADMIN;bob:pw2:USER");
+        let config = Some("alice:pw1:Admin;bob:pw2:User");
         let result = get_auth_setting(&CliAuthSetting { auth_setting: setting, auth_config: config.map(str::to_string) });
 
         let AuthSetting::Simple { auth_mapping } = result else { panic!("expected simple auth") };

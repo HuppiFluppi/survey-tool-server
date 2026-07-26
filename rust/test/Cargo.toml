@@ -1,0 +1,22 @@
+[package]
+name = "survey-tool-test"
+description = "Test crate to verify client lib and server bin together"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+publish = false
+
+# The integration tests use the client purely as a library and drive the server
+# by launching its compiled binary on the command line (see tests/common/mod.rs).
+# The server crate is therefore intentionally NOT a dependency here (it is a
+# binary-only crate and cannot be linked as a library anyway).
+[dependencies]
+survey-tool-api-client = { path = "../client" }
+
+[dev-dependencies]
+tokio = { workspace = true }
+prost-types = { workspace = true }
+# Generates a throwaway self-signed certificate for the TLS enforcement test.
+# Uses the same crypto backend the workspace already compiles for tonic's TLS.
+rcgen = "0.14"
