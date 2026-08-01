@@ -45,31 +45,33 @@ cd rust
 cargo run -p survey-tool-server
 ```
 
-This starts a gRPC server on `127.0.0.1:1504` with authentication disabled. For all
+This starts a gRPC server on `0.0.0.0:1504` with authentication disabled. You can reach it on `localhost:1504`. For all
 configuration options (auth, TLS, persistence backends) see [rust/README.md](rust/README.md).
 
 ### Via Container/Docker
 
-Container for all server variants are published to the Github container registry.
+Container for all server variants are published to the GitHub container registry.
 Configuration can be done via environment parameters.
+
+Check the respective language readme for details.
 
 ## Roadmap
 
 - [x] (API) Publish REST & gRPC api
 - [x] (Rust) Create grpc server
 - [x] (Rust) Create grpc client
-- [] (Rust) Provide Docker build
-- [] (Rust) Add Rest server
-- [] (Rust) Add Rest client
-- [] (Rust) Add AWS persistence option
-- [] (Rust) Improve logging
-- [] (Kotlin) Create Ktor server
-- [] (Kotlin) Create Ktor client
-- [] (Kotlin) Provide Docker build
-- [] Add IaC files for AWS (CDK + CF)
-- [] Create benchmark
-- [] Try AWS services only infrastructure
-- [] Add streaming endpoints
+- [x] (Rust) Provide Docker build
+- [ ] (Rust) Add Rest server
+- [ ] (Rust) Add Rest client
+- [ ] (Rust) Add AWS persistence option
+- [ ] (Rust) Improve logging
+- [ ] (Kotlin) Create Ktor server
+- [ ] (Kotlin) Create Ktor client
+- [ ] (Kotlin) Provide Docker build
+- [ ] Add IaC files for AWS (CDK + CF)
+- [ ] Create benchmark
+- [ ] Try AWS services only infrastructure
+- [ ] Add streaming endpoints
 
 ## Contributing
 Contributions are welcome! Please:

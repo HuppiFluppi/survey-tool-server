@@ -33,12 +33,12 @@ mod shared;
 #[command(version, about, long_about = None)]
 struct Opt {
     /// gRPC server address
-    #[arg(long, env, default_value = "127.0.0.1:1504")]
+    #[arg(long, env, default_value = "0.0.0.0:1504")]
     #[cfg(feature = "grpc")]
     grpc_address: SocketAddr,
 
     /// Http/Rest server address
-    #[arg(long, env, default_value = "127.0.0.1:80")]
+    #[arg(long, env, default_value = "0.0.0.0:80")]
     #[cfg(feature = "rest")]
     rest_address: String,
 

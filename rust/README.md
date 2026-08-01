@@ -25,7 +25,7 @@ cargo run -p survey-tool-server
 ```
 
 The default build enables the `grpc` and `local` features and starts a gRPC server on
-`127.0.0.1:1504` with **authentication disabled**.
+`0.0.0.0:1504` with **authentication disabled**.
 
 > **Note:** the server depends on `survey-tool-cli` via a git dependency, so the first build
 > needs network access.
@@ -41,22 +41,32 @@ The default build enables the `grpc` and `local` features and starts a gRPC serv
 
 The client crate exposes `grpc` (default) and a placeholder `rest` feature.
 
+### Container build (server)
+
+The server can be run as a container. Either build it yourself or use the published container from GitHub registry.
+As the container build needs the api, the containerfile for building is at root level to include all necessary files.
+
+```bash
+# from root directory
+docker build -f .\Containerfile_Rust
+```
+
 ## Configuration (server)
 
 All options are available as CLI flags **and** environment variables (uppercased field name).
 Run `cargo run -p survey-tool-server -- --help` for the authoritative list. The most relevant:
 
-| Flag | Env | Default | Description |
-| --- | --- | --- | --- |
-| `--grpc-address` | `GRPC_ADDRESS` | `127.0.0.1:1504` | gRPC listen address. |
-| `--auth-setting` | `AUTH_SETTING` | `none` | `none` or `simple`. |
-| `--auth-config` | `AUTH_CONFIG` | – | Required when auth is `simple` (see below). |
-| `--tls-setting` | `TLS_SETTING` | `off` | `off` or `pem`. |
-| `--tls-cert-pem-file` / `--tls-key-pem-file` | `TLS_CERT_PEM_FILE` / `TLS_KEY_PEM_FILE` | – | Required when TLS is `pem`. |
-| `--persistence-type` | `PERSISTENCE_TYPE` | `local` | `local` (or `aws` when built with that feature). |
+| Flag | Env | Default        | Description |
+| --- | --- |----------------| --- |
+| `--grpc-address` | `GRPC_ADDRESS` | `0.0.0.0:1504` | gRPC listen address. |
+| `--auth-setting` | `AUTH_SETTING` | `none`         | `none` or `simple`. |
+| `--auth-config` | `AUTH_CONFIG` | –              | Required when auth is `simple` (see below). |
+| `--tls-setting` | `TLS_SETTING` | `off`          | `off` or `pem`. |
+| `--tls-cert-pem-file` / `--tls-key-pem-file` | `TLS_CERT_PEM_FILE` / `TLS_KEY_PEM_FILE` | –              | Required when TLS is `pem`. |
+| `--persistence-type` | `PERSISTENCE_TYPE` | `local`        | `local` (or `aws` when built with that feature). |
 | `--persistence-local-storage-folder` | `PERSISTENCE_LOCAL_STORAGE_FOLDER` | `./sts/files/` | Where survey ZIPs are stored. |
-| `--persistence-local-db-folder` | `PERSISTENCE_LOCAL_DB_FOLDER` | `./sts/db/` | Where the SQLite database lives. |
-| `--persistence-local-no-create` | `PERSISTENCE_LOCAL_NO_CREATE` | off | If set, the folders must already exist (they are not auto-created). |
+| `--persistence-local-db-folder` | `PERSISTENCE_LOCAL_DB_FOLDER` | `./sts/db/`    | Where the SQLite database lives. |
+| `--persistence-local-no-create` | `PERSISTENCE_LOCAL_NO_CREATE` | off            | If set, the folders must already exist (they are not auto-created). |
 
 ### Authentication & authorization
 
@@ -104,7 +114,7 @@ Role requirements per operation:
 use survey_tool_api_client::grpc::{SurveyApiClient, GrpcAuthSetting};
 
 // No auth, no TLS
-let mut client = SurveyApiClient::new("http://127.0.0.1:1504").await.unwrap();
+let mut client = SurveyApiClient::new("http://0.0.0.0:1504").await.unwrap();
 
 // With auth over TLS (native root certificates)
 let mut client = SurveyApiClient::with_options(
