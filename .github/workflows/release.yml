@@ -1,0 +1,219 @@
+# This workflow packages and releases a new version
+name: Release
+on:
+  push:
+    tags: [ '[0-9].[0-9]+.[0-9]+' ]
+
+# FLow
+#
+# release-kotlin      |->  release-kotlin-container   -|
+#                     |                                |-> create-release
+# release-rust-linux  |->  release-rust-windows       -|
+#                     |->  release-rust-container     -|
+#
+
+jobs:
+#  release-kotlin:
+#    runs-on: ubuntu-latest
+#    defaults:
+#      run:
+#        working-directory: ./kotlin
+#    steps:
+#      - uses: actions/checkout@v7
+#        with:
+#          fetch-depth: 0
+#      - uses: actions/setup-java@v5
+#        with:
+#          java-version: '25'
+#          distribution: 'temurin'
+#      - uses: gradle/actions/setup-gradle@v6
+#      - name: Build+Check
+#        run: |
+#          ./gradlew --version
+#          ./gradlew -Pversion=$GITHUB_REF_NAME clean build
+#      - name: Upload Test results
+#        if: always()
+#        uses: actions/upload-artifact@v7
+#        with:
+#          name: Test results
+#          path: build/reports/tests/
+#      - name: Package
+#        run: ./gradlew -Pversion=$GITHUB_REF_NAME packageReleaseUberJar
+#      - name: Upload build artifacts
+#        uses: actions/upload-artifact@v7
+#        with:
+#          name: Survey Tool Server Jar
+#          path: build/jars/survey-tool-server-${{ github.ref_name }}-kotlin.jar
+#
+#  release-kotlin-container:
+#    runs-on: ubuntu-latest
+#    needs: [ release-kotlin ]
+#    permissions:
+#      packages: write
+#    steps:
+#      - uses: actions/checkout@v7
+#      - name: Login to GitHub Container Registry
+#        uses: docker/login-action@v4
+#        with:
+#          registry: ghcr.io
+#          username: ${{ github.actor }}
+#          password: ${{ secrets.GITHUB_TOKEN }}
+#      - name: Extract metadata
+#        id: meta
+#        uses: docker/metadata-action@v6
+#        with:
+#          images: ghcr.io/${{ github.repository }}/server-kotlin
+#          tags: |
+#            type=semver,pattern={{version}}
+#      - name: Build and push
+#        uses: docker/build-push-action@v7
+#        with:
+#          context: .
+#          file: ./Containerfile_Kotlin
+#          push: true
+#          tags: ${{ steps.meta.outputs.tags }}
+#          labels: ${{ steps.meta.outputs.labels }}
+
+  release-rust-linux:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./rust
+    steps:
+      - uses: actions/checkout@v7
+      - name: Cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Check cargo version == tag
+        run: |
+          PACKAGE_ID="$(cargo pkgid -p survey-tool-server)"
+          CARGO_VERSION="${PACKAGE_ID##*@}"
+          echo "Cargo: $CARGO_VERSION - Tag: $GITHUB_REF_NAME"
+          [ "$CARGO_VERSION" = "$GITHUB_REF_NAME" ]
+      - name: Prep
+        run: |
+          sudo apt-get -y install protobuf-compiler
+          protoc --version
+      - name: Build
+        run: |
+          rustup --version
+          cargo clean
+          cargo build --release --verbose --locked
+      - name: Test
+        run: cargo test --release --verbose --locked
+      - name: Rename release executable
+        run: |
+          mv target/release/libsurvey_tool_api_client.rlib "target/release/libsurvey-tool-api-client-${GITHUB_REF_NAME}-rust-linux.rlib"
+          mv target/release/survey-tool-server "target/release/survey-tool-server-${GITHUB_REF_NAME}-rust-linux"
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Survey-Tool-Server-Rust-Linux
+          path: |
+            "rust/target/release/survey-tool-server-${GITHUB_REF_NAME}-rust-linux"
+            "rust/target/release/libsurvey-tool-api-client-${GITHUB_REF_NAME}-rust-linux.rlib"
+
+  release-rust-container:
+    runs-on: ubuntu-latest
+    needs: [ release-rust-linux ]
+    permissions:
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}/server-rust
+          tags: |
+            type=semver,pattern={{version}}
+      - name: Build and push
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./Containerfile_Rust
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  release-rust-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ./rust
+    steps:
+      - uses: actions/checkout@v7
+      - name: Cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+      - name: Prep
+        run: |
+          winget install --silent protobuf
+          protoc --version
+      - name: Build
+        run: |
+          rustup --version
+          cargo clean
+          cargo build --release --verbose
+      - name: Test
+        run: cargo test --release --verbose
+      - name: Rename release executable
+        run: |
+          mv target/release/libsurvey_tool_api_client.rlib "target/release/libsurvey-tool-api-client-${env:GITHUB_REF_NAME}-rust-windows.rlib"
+          mv target/release/survey-tool-server.exe "target/release/survey-tool-server-${env:GITHUB_REF_NAME}-rust-windows.exe"
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: Survey-Tool-Server-Rust-Windows
+          path: |
+            "target/release/survey-tool-server-${{ github.ref_name }}-rust-windows.exe"
+            "target/release/libsurvey-tool-api-client-${{ github.ref_name }}-rust-windows.rlib"
+
+  create-release:
+    runs-on: ubuntu-latest
+    needs: [ 'release-rust-linux', 'release-rust-windows', 'release-rust-container' ]
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: '0'
+      - name: Download all workflow run artifacts
+        uses: actions/download-artifact@v8
+      - name: Create changelog
+        run: |
+          mapfile -t TAGS < <(git tag --sort=-creatordate | head -n 2)
+          CURRENT_TAG="${TAGS[0]}"
+          PREVIOUS_TAG="${TAGS[1]}"
+          [ "$CURRENT_TAG" = "$GITHUB_REF_NAME" ]
+
+          echo "Creating changelog from $PREVIOUS_TAG to $CURRENT_TAG"
+          git log --pretty=format:'%h %s' "$PREVIOUS_TAG..$CURRENT_TAG" > .github/workflows/release-notes.md
+          .github/workflows/release_notes.py
+      - name: Create single release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --verify-tag -F .github/workflows/release-notes.md -t "$GITHUB_REF_NAME" \
+            "Survey-Tool-Server-Rust-Linux/survey-tool-server-${GITHUB_REF_NAME}-rust-linux" \
+            "Survey-Tool-Server-Rust-Linux/libsurvey-tool-api-client-${GITHUB_REF_NAME}-rust-linux.rlib" \
+            "Survey-Tool-Server-Rust-Windows/survey-tool-server-${GITHUB_REF_NAME}-rust-windows.exe" \
+            "Survey-Tool-Server-Rust-Windows/libsurvey-tool-api-client-${GITHUB_REF_NAME}-rust-windows.rlib"
