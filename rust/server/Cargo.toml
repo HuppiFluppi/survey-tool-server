@@ -27,6 +27,7 @@ aws-sdk-dynamodb = { version = "1.119", optional = true }
 rusqlite = { version = "0.40", features = ["bundled"], optional = true }
 uuid = { version = "1.24", features = ["v4"] }
 zip = "8.6"
+base64 = { workspace = true }
 survey-tool-cli = { git = "https://github.com/HuppiFluppi/survey-tool-cli.git" }
 
 [build-dependencies]

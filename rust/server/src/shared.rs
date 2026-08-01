@@ -15,17 +15,17 @@ pub mod server {
         User,
     }
 
-    /// Authentication mode. `Simple` maps `"user:pass"` keys to the roles they grant.
+    /// Authentication mode. `Basic` maps `"user:pass"` keys to the roles they grant.
     #[derive(Debug, Clone)]
     pub enum AuthSetting {
         None,
-        Simple { auth_mapping: std::collections::HashMap<String, Vec<Roles>> },
+        Basic { auth_mapping: std::collections::HashMap<String, Vec<Roles>> },
     }
 
     impl AuthSetting {
-        /// Build a [`AuthSetting::Simple`] from `(user, pass, roles)` tuples, keying by `"user:pass"`.
-        pub fn simple(entries: Vec<(String, String, Vec<Roles>)>) -> Self {
-            Self::Simple { auth_mapping: entries.into_iter().map(|t| (format!("{}:{}", t.0, t.1), t.2)).collect() }
+        /// Build a [`AuthSetting::Basic`] from `(user, pass, roles)` tuples, keying by `"user:pass"`.
+        pub fn basic(entries: Vec<(String, String, Vec<Roles>)>) -> Self {
+            Self::Basic { auth_mapping: entries.into_iter().map(|t| (format!("{}:{}", t.0, t.1), t.2)).collect() }
         }
     }
 

@@ -15,11 +15,13 @@ use crate::grpc::grpc_survey_api::survey_results_service_server::{SurveyResultsS
 use crate::grpc::grpc_survey_api::survey_service_server::{SurveyService, SurveyServiceServer};
 use crate::shared::persistence::models as persistence;
 use crate::shared::persistence::{PersistenceError, SurveyPersistenceClient};
-use crate::shared::server::{AuthSetting, TlsSetting, Roles};
+use crate::shared::server::{AuthSetting, Roles, TlsSetting};
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::{Request, Response, Status, transport::Server};
 
 /// gRPC server holding the shared persistence backend and the active auth policy.
 pub struct SurveyApiServer {
@@ -78,17 +80,28 @@ impl SurveyApiServer {
     fn check_auth<T>(&self, req: &Request<T>, allowed_roles: &[Roles]) -> Result<(), Status> {
         match &self.auth_setting {
             AuthSetting::None => Ok(()),
-            AuthSetting::Simple { auth_mapping } => {
-                let req_user = req.metadata().get("user").and_then(|u| u.to_str().ok());
-                let req_pass = req.metadata().get("pass").and_then(|u| u.to_str().ok());
-                if req_user.is_none() || req_pass.is_none() {
-                    return Err(Status::unauthenticated("Missing auth header 'user' and/or 'pass'"));
+            AuthSetting::Basic { auth_mapping } => {
+                let req_auth_header = req.metadata().get("Authorization").and_then(|u| u.to_str().ok());
+                let Some(req_auth_header) = req_auth_header else {
+                    return Err(Status::unauthenticated("Missing Authorization header"));
+                };
+                let (method, auth_str) = req_auth_header.split_once(' ').ok_or(Status::unauthenticated("Wrong Authorization header format"))?;
+                if method != "Basic" || auth_str.is_empty() {
+                    return Err(Status::unauthenticated(format!(
+                        "Wrong authorization method or empty auth str: {method} (expected 'Basic'). Auth str empty: {}",
+                        auth_str.is_empty()
+                    )));
                 }
-                let userpass = format!("{}:{}", req_user.unwrap(), req_pass.unwrap());
-                match auth_mapping.get(&userpass) {
-                    None => Err(Status::unauthenticated("Invalid 'user' & 'pass'")),
+                let auth_str = BASE64_STANDARD
+                    .decode(auth_str)
+                    .ok()
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+                    .ok_or(Status::invalid_argument("Error decoding auth string"))?;
+
+                match auth_mapping.get(&auth_str) {
+                    None => Err(Status::unauthenticated("Invalid credentials")),
                     Some(roles) if roles.iter().any(|r| allowed_roles.contains(r)) => Ok(()),
-                    _ => Err(Status::permission_denied("method not allowed for user")),
+                    _ => Err(Status::permission_denied("Method not allowed for user")),
                 }
             },
         }

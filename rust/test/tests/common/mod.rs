@@ -132,7 +132,7 @@ pub struct Builder {
 }
 
 impl Builder {
-    /// Enable simple authentication with the given `user:pass:roles;...` config.
+    /// Enable basic authentication with the given `user:pass:roles;...` config.
     pub fn auth(mut self, config: &str) -> Self {
         self.auth_config = Some(config.to_string());
         self
@@ -190,7 +190,7 @@ impl TestServer {
             .stderr(Stdio::inherit());
 
         if let Some(config) = &builder.auth_config {
-            cmd.args(["--auth-setting", "simple", "--auth-config", config]);
+            cmd.args(["--auth-setting", "basic", "--auth-config", config]);
         }
 
         let mut tls_files = Vec::new();

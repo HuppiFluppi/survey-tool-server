@@ -17,6 +17,8 @@ pub use crate::grpc::grpc_survey_api::SurveyType;
 use crate::grpc::grpc_survey_api::survey_data_service_client::SurveyDataServiceClient;
 use crate::grpc::grpc_survey_api::survey_results_service_client::SurveyResultsServiceClient;
 use crate::grpc::grpc_survey_api::survey_service_client::SurveyServiceClient;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use core::fmt;
 use std::error::Error;
 use std::fmt::{Debug, Display};
@@ -64,9 +66,9 @@ impl SurveyApiClient {
     fn set_request_auth<T>(&self, request: &mut tonic::Request<T>) {
         match &self.auth_setting {
             GrpcAuthSetting::None => {},
-            GrpcAuthSetting::Simple { user, pass } => {
-                request.metadata_mut().insert("user", user.parse().unwrap());
-                request.metadata_mut().insert("pass", pass.parse().unwrap());
+            GrpcAuthSetting::Basic { user, pass } => {
+                let auth_str = format!("Basic {}", BASE64_STANDARD.encode(format!("{user}:{pass}").as_bytes()));
+                request.metadata_mut().insert("Authorization", auth_str.parse().unwrap());
             },
         }
     }
@@ -178,10 +180,10 @@ impl SurveyApiClient {
     }
 }
 
-/// Credentials sent with every request. `Simple` maps to `user`/`pass` metadata headers.
+/// Credentials sent with every request. `Basic` uses HTTP basic auth.
 pub enum GrpcAuthSetting {
     None,
-    Simple { user: String, pass: String },
+    Basic { user: String, pass: String },
 }
 
 // --- Error model

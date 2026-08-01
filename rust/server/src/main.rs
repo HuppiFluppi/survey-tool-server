@@ -92,16 +92,16 @@ struct CliPersistenceSetting {
     persistence_local_no_create: bool,
 }
 
-/// Authentication mode plus the `user:pass:roles;...` config string for simple auth.
+/// Authentication mode plus the `user:pass:roles;...` config string for basic auth.
 #[derive(Args, Debug)]
 struct CliAuthSetting {
     /// Type of auth
     #[arg(long, env, value_enum, default_value_t = CliAuthType::None)]
     auth_setting: CliAuthType,
 
-    /// Auth configuration string. Required when auth_setting is 'simple'.
+    /// Auth configuration string. Required when auth_setting is 'basic'.
     /// Format: 'user1:pass1:role1,role2;user2:pass2:role1,role2'
-    #[arg(long, env, required_if_eq("auth_setting", "simple"))]
+    #[arg(long, env, required_if_eq("auth_setting", "basic"))]
     auth_config: Option<String>,
 }
 
@@ -137,8 +137,8 @@ enum CliPersistenceType {
 enum CliAuthType {
     /// Disable authentication
     None,
-    /// Enable simple authentication
-    Simple,
+    /// Enable http basic authentication
+    Basic,
 }
 
 /// Selectable TLS mode.
@@ -238,13 +238,13 @@ async fn get_tls_setting(tls: &CliTlsSetting) -> TlsSetting {
     }
 }
 
-/// Resolve the [`AuthSetting`], parsing the `user:pass:roles;...` config for simple auth.
+/// Resolve the [`AuthSetting`], parsing the `user:pass:roles;...` config for basic auth.
 ///
 /// Exits the process with a CLI error on malformed entries or unknown roles.
 fn get_auth_setting(auth: &CliAuthSetting) -> AuthSetting {
     match (&auth.auth_setting, &auth.auth_config) {
         (CliAuthType::None, _) => AuthSetting::None,
-        (CliAuthType::Simple, Some(config)) => {
+        (CliAuthType::Basic, Some(config)) => {
             let entries = config
                 .split(';')
                 .map(|e| {
@@ -263,7 +263,7 @@ fn get_auth_setting(auth: &CliAuthSetting) -> AuthSetting {
                     (u.to_string(), p.to_string(), roles)
                 })
                 .collect();
-            AuthSetting::simple(entries)
+            AuthSetting::basic(entries)
         },
         _ => Opt::command().error(ErrorKind::MissingRequiredArgument, "Invalid auth config").exit(),
     }
@@ -331,24 +331,24 @@ mod tests {
     }
 
     #[test]
-    fn auth_simple_parses_user_password_key_and_multiple_roles() {
-        let setting = CliAuthType::Simple;
+    fn auth_basic_parses_user_password_key_and_multiple_roles() {
+        let setting = CliAuthType::Basic;
         let config = Some("alice:secret:Admin,User");
         let result = get_auth_setting(&CliAuthSetting { auth_setting: setting, auth_config: config.map(str::to_string) });
 
-        let AuthSetting::Simple { auth_mapping } = result else { panic!("expected simple auth") };
+        let AuthSetting::Basic { auth_mapping } = result else { panic!("expected basic auth") };
         assert_eq!(auth_mapping.len(), 1);
         // The map key combines user and password as 'user:pass', roles keep their order.
         assert_eq!(auth_mapping.get("alice:secret"), Some(&vec![Roles::Admin, Roles::User]));
     }
 
     #[test]
-    fn auth_simple_parses_multiple_entries() {
-        let setting = CliAuthType::Simple;
+    fn auth_basic_parses_multiple_entries() {
+        let setting = CliAuthType::Basic;
         let config = Some("alice:pw1:Admin;bob:pw2:User");
         let result = get_auth_setting(&CliAuthSetting { auth_setting: setting, auth_config: config.map(str::to_string) });
 
-        let AuthSetting::Simple { auth_mapping } = result else { panic!("expected simple auth") };
+        let AuthSetting::Basic { auth_mapping } = result else { panic!("expected basic auth") };
         assert_eq!(auth_mapping.len(), 2);
         assert_eq!(auth_mapping.get("alice:pw1"), Some(&vec![Roles::Admin]));
         assert_eq!(auth_mapping.get("bob:pw2"), Some(&vec![Roles::User]));
