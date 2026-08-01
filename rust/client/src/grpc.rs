@@ -23,6 +23,7 @@ use core::fmt;
 use std::error::Error;
 use std::fmt::{Debug, Display};
 use tonic::codegen::http;
+use tonic::transport::Certificate;
 
 /// Entry point for talking to a survey tool server over gRPC.
 ///
@@ -50,9 +51,26 @@ impl SurveyApiClient {
     /// Connect to `destination` over a TLS channel (system root certificates) using the given auth.
     ///
     /// Unlike [`new`](Self::new), all three service clients share a single channel.
-    pub async fn with_options(destination: &str, auth: GrpcAuthSetting) -> Result<SurveyApiClient, SurveyApiClientError> {
-        let tls_conf = tonic::transport::ClientTlsConfig::new().with_enabled_roots();
-        let channel = tonic::transport::Channel::from_shared(destination.to_owned())?.tls_config(tls_conf)?.connect().await?;
+    pub async fn with_options(destination: &str, auth: GrpcAuthSetting, tls: GrpcTlsSetting) -> Result<SurveyApiClient, SurveyApiClientError> {
+        let channel = tonic::transport::Channel::from_shared(destination.to_owned())?;
+        let channel = match tls {
+            GrpcTlsSetting::None => channel,
+            GrpcTlsSetting::PlatformCerts => channel.tls_config(tonic::transport::ClientTlsConfig::new().with_enabled_roots())?,
+            GrpcTlsSetting::WithCustomCerts { certificate, domain, trust_platform_certs } => {
+                let ca = Certificate::from_pem(certificate);
+                let mut tls_config = tonic::transport::ClientTlsConfig::new().ca_certificate(ca);
+
+                if let Some(domain) = domain {
+                    tls_config = tls_config.domain_name(domain);
+                }
+                if trust_platform_certs {
+                    tls_config = tls_config.with_enabled_roots();
+                }
+
+                channel.tls_config(tls_config)?
+            },
+        };
+        let channel = channel.connect().await?;
 
         Ok(SurveyApiClient {
             survey_client: SurveyServiceClient::new(channel.clone()),
@@ -68,7 +86,7 @@ impl SurveyApiClient {
             GrpcAuthSetting::None => {},
             GrpcAuthSetting::Basic { user, pass } => {
                 let auth_str = format!("Basic {}", BASE64_STANDARD.encode(format!("{user}:{pass}").as_bytes()));
-                request.metadata_mut().insert("Authorization", auth_str.parse().unwrap());
+                request.metadata_mut().insert("authorization", auth_str.parse().unwrap());
             },
         }
     }
@@ -184,6 +202,12 @@ impl SurveyApiClient {
 pub enum GrpcAuthSetting {
     None,
     Basic { user: String, pass: String },
+}
+
+pub enum GrpcTlsSetting {
+    None,
+    PlatformCerts,
+    WithCustomCerts { certificate: Vec<u8>, domain: Option<String>, trust_platform_certs: bool },
 }
 
 // --- Error model
