@@ -116,8 +116,8 @@ jobs:
         with:
           name: Survey-Tool-Server-Rust-Linux
           path: |
-            "rust/target/release/survey-tool-server-${GITHUB_REF_NAME}-rust-linux"
-            "rust/target/release/libsurvey-tool-api-client-${GITHUB_REF_NAME}-rust-linux.rlib"
+            "rust/target/release/survey-tool-server-${{ github.ref_name }}-rust-linux"
+            "rust/target/release/libsurvey-tool-api-client-${{ github.ref_name }}-rust-linux.rlib"
 
   release-rust-container:
     runs-on: ubuntu-latest
@@ -166,7 +166,7 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
       - name: Prep
         run: |
-          winget install --silent protobuf
+          winget install --silent --accept-source-agreements --accept-package-agreements --source winget --disable-interactivity --id Google.Protobuf
           protoc --version
       - name: Build
         run: |
@@ -201,12 +201,18 @@ jobs:
       - name: Create changelog
         run: |
           mapfile -t TAGS < <(git tag --sort=-creatordate | head -n 2)
-          CURRENT_TAG="${TAGS[0]}"
-          PREVIOUS_TAG="${TAGS[1]}"
-          [ "$CURRENT_TAG" = "$GITHUB_REF_NAME" ]
-
-          echo "Creating changelog from $PREVIOUS_TAG to $CURRENT_TAG"
-          git log --pretty=format:'%h %s' "$PREVIOUS_TAG..$CURRENT_TAG" > .github/workflows/release-notes.md
+          CURRENT_TAG="${TAGS[0]:-}"
+          PREVIOUS_TAG="${TAGS[1]:-}"
+          
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            LOG_RANGE="$PREVIOUS_TAG..$CURRENT_TAG"
+            echo "Creating changelog from $PREVIOUS_TAG to $CURRENT_TAG"
+          else
+            LOG_RANGE="$CURRENT_TAG"
+            echo "No previous tag found; creating changelog from complete history"
+          fi
+          
+          git log --pretty=format:'%h %s' "$LOG_RANGE" > .github/workflows/release-notes.md    
           .github/workflows/release_notes.py
       - name: Create single release
         env:

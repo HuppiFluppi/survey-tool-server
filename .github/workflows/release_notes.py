@@ -2,7 +2,6 @@
 
 from io import TextIOWrapper
 
-
 INPUT_FILE_NAME = "release-notes.md"
 OUTPUT_FILE_NAME = "release-notes.md"
 CATEGORIES = ["feat", "fix", "chore", "ci", "docs"]
@@ -31,7 +30,7 @@ def read_release_notes(file: str) -> list[tuple[str | None, str | None, str, str
                 if not component:
                     component = None
                 else:
-                    component = component.rstrip(")")               
+                    component = component.rstrip(")")
             out.append((action, component, msg, hash))
     return out
 
@@ -41,7 +40,7 @@ def read_release_notes(file: str) -> list[tuple[str | None, str | None, str, str
 def group_release_notes(notes: list[tuple[str | None, str | None, str, str]]) -> dict[str, list[tuple[str | None, str, str]]]:
     out = {}
     for n in notes:
-        if not n[0] or n[0].lower() not in CATEGORIES: #no category
+        if not n[0] or n[0].lower() not in CATEGORIES:  # no category
             c = NON_CAT_NAME
         else:
             c = n[0]
@@ -52,7 +51,7 @@ def group_release_notes(notes: list[tuple[str | None, str | None, str, str]]) ->
         out[c].append((n[1], n[2], n[3]))
 
     for v in out.values():
-        v.sort(key=lambda t: t[0] if t[0] else "")            
+        v.sort(key=lambda t: t[0] if t[0] else "")
 
     return out
 
@@ -60,22 +59,22 @@ def group_release_notes(notes: list[tuple[str | None, str | None, str, str]]) ->
 # takes grouped notes and writes them to a file in markdown format
 def write_release_notes(file: str, grouped_notes: dict[str, list[tuple[str | None, str, str]]]):
     with open(file, "w") as f:
-        #make sure features comes first
+        # make sure features comes first
         if features := grouped_notes.pop("feat", None):
             _list_notes(f, "feat", features)
 
-        #make sure fixes comes next
+        # make sure fixes comes next
         if fixes := grouped_notes.pop("fix", None):
             _list_notes(f, "fix", fixes)
 
-        #remove general to put it last
+        # remove general to put it last
         general = grouped_notes.pop(NON_CAT_NAME, None)
 
-        #everything else
+        # everything else
         for k, v in grouped_notes.items():
             _list_notes(f, k, v)
 
-        #lastly, the general category
+        # lastly, the general category
         if general:
             _list_notes(f, NON_CAT_NAME, general)
 
