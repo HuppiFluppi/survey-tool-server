@@ -78,7 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./rust
+        working-directory: ./rust #this sets the cwd for the shell. non-shell commands still need full path
     steps:
       - uses: actions/checkout@v7
       - name: Cache
@@ -116,8 +116,8 @@ jobs:
         with:
           name: Survey-Tool-Server-Rust-Linux
           path: |
-            "rust/target/release/survey-tool-server-${GITHUB_REF_NAME}-rust-linux"
-            "rust/target/release/libsurvey-tool-api-client-${GITHUB_REF_NAME}-rust-linux.rlib"
+            rust/target/release/survey-tool-server-${{ github.ref_name }}-rust-linux
+            rust/target/release/libsurvey-tool-api-client-${{ github.ref_name }}-rust-linux.rlib
 
   release-rust-container:
     runs-on: ubuntu-latest
@@ -152,7 +152,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: ./rust
+        working-directory: ./rust #this sets the cwd for the shell. non-shell commands still need full path
     steps:
       - uses: actions/checkout@v7
       - name: Cache
@@ -166,15 +166,17 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
       - name: Prep
         run: |
-          winget install --silent protobuf
+          winget install --silent --accept-source-agreements --accept-package-agreements --source winget --disable-interactivity --id Google.Protobuf
           protoc --version
+          $protoc_bin = (where.exe protoc | Get-Item).DirectoryName
+          Add-Content $env:GITHUB_PATH $protoc_bin
       - name: Build
         run: |
           rustup --version
           cargo clean
-          cargo build --release --verbose
+          cargo build --release --verbose --locked
       - name: Test
-        run: cargo test --release --verbose
+        run: cargo test --release --verbose --locked
       - name: Rename release executable
         run: |
           mv target/release/libsurvey_tool_api_client.rlib "target/release/libsurvey-tool-api-client-${env:GITHUB_REF_NAME}-rust-windows.rlib"
@@ -184,8 +186,8 @@ jobs:
         with:
           name: Survey-Tool-Server-Rust-Windows
           path: |
-            "target/release/survey-tool-server-${{ github.ref_name }}-rust-windows.exe"
-            "target/release/libsurvey-tool-api-client-${{ github.ref_name }}-rust-windows.rlib"
+            rust/target/release/survey-tool-server-${{ github.ref_name }}-rust-windows.exe
+            rust/target/release/libsurvey-tool-api-client-${{ github.ref_name }}-rust-windows.rlib
 
   create-release:
     runs-on: ubuntu-latest
@@ -201,18 +203,28 @@ jobs:
       - name: Create changelog
         run: |
           mapfile -t TAGS < <(git tag --sort=-creatordate | head -n 2)
-          CURRENT_TAG="${TAGS[0]}"
-          PREVIOUS_TAG="${TAGS[1]}"
-          [ "$CURRENT_TAG" = "$GITHUB_REF_NAME" ]
-
-          echo "Creating changelog from $PREVIOUS_TAG to $CURRENT_TAG"
-          git log --pretty=format:'%h %s' "$PREVIOUS_TAG..$CURRENT_TAG" > .github/workflows/release-notes.md
+          CURRENT_TAG="${TAGS[0]:-}"
+          PREVIOUS_TAG="${TAGS[1]:-}"
+          
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            LOG_RANGE="$PREVIOUS_TAG..$CURRENT_TAG"
+            echo "Creating changelog from $PREVIOUS_TAG to $CURRENT_TAG"
+          else
+            LOG_RANGE="$CURRENT_TAG"
+            echo "No previous tag found; creating changelog from complete history"
+          fi
+          
+          git log --pretty=format:'%h %s' "$LOG_RANGE" > .github/workflows/release-notes.md
           .github/workflows/release_notes.py
+          
+          echo "---" >> .github/workflows/release-notes.md
+          echo "###Container builds:###" >> .github/workflows/release-notes.md
+          echo "- Rust server: ghcr.io/huppifluppi/survey-tool-server/server-rust:$GITHUB_REF_NAME" >> .github/workflows/release-notes.md
       - name: Create single release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --verify-tag -F .github/workflows/release-notes.md -t "$GITHUB_REF_NAME" \
+          gh release create "$GITHUB_REF_NAME" --verify-tag -F .github/workflows/release-notes.md -t "$GITHUB_REF_NAME" --generate-notes \
             "Survey-Tool-Server-Rust-Linux/survey-tool-server-${GITHUB_REF_NAME}-rust-linux" \
             "Survey-Tool-Server-Rust-Linux/libsurvey-tool-api-client-${GITHUB_REF_NAME}-rust-linux.rlib" \
             "Survey-Tool-Server-Rust-Windows/survey-tool-server-${GITHUB_REF_NAME}-rust-windows.exe" \

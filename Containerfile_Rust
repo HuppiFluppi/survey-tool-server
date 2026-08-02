@@ -1,4 +1,4 @@
-FROM rust as builder
+FROM rust AS builder
 
 RUN apt-get update && apt-get install -y protobuf-compiler
 
@@ -7,7 +7,7 @@ COPY api api
 COPY rust rust
 
 WORKDIR rust
-RUN cargo build --release -p survey-tool-server
+RUN cargo build --release --locked -p survey-tool-server
 
 FROM debian:stable-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
