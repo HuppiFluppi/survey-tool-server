@@ -20,3 +20,7 @@ prost-types = { workspace = true }
 # Generates a throwaway self-signed certificate for the TLS enforcement test.
 # Uses the same crypto backend the workspace already compiles for tonic's TLS.
 rcgen = "0.14"
+# The test process links two rustls crypto providers (aws-lc-rs via tonic and
+# ring via rcgen), so rustls cannot auto-select one. We need the rustls dep to
+# install a default provider explicitly in the harness.
+rustls = "0.23"

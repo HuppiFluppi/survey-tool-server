@@ -16,8 +16,8 @@
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Once;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use survey_tool_api_client::grpc::SurveyResult;
@@ -27,6 +27,7 @@ use survey_tool_api_client::grpc::SurveyResult;
 // ---------------------------------------------------------------------------
 
 static BUILD: Once = Once::new();
+static CRYPTO: Once = Once::new();
 static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Path of the cargo executable, falling back to the one on `PATH`.
@@ -154,6 +155,9 @@ impl Builder {
 pub struct TestServer {
     child: Child,
     port: u16,
+    // PEM of the self-signed certificate the server presents (only set for TLS
+    // servers), so TLS clients can pin it as their trusted CA.
+    cert_pem: Option<String>,
     // Kept alive for the lifetime of the server so they are cleaned up on drop.
     _storage: TempDir,
     _db: TempDir,
@@ -169,6 +173,23 @@ impl TestServer {
     /// The base URL a plaintext client uses to reach this server.
     pub fn addr(&self) -> String {
         format!("http://127.0.0.1:{}", self.port)
+    }
+
+    /// The base URL a TLS client uses to reach this server.
+    ///
+    /// Uses the loopback IP because the server only binds `127.0.0.1`. The
+    /// self-signed certificate's SAN is `localhost`, so TLS callers must
+    /// override the verification domain to `localhost` (see
+    /// [`GrpcTlsSetting::WithCustomCerts`](survey_tool_api_client::grpc::GrpcTlsSetting)).
+    pub fn tls_addr(&self) -> String {
+        format!("https://127.0.0.1:{}", self.port)
+    }
+
+    /// PEM of the self-signed certificate this server presents, for pinning as
+    /// the client's trusted CA. `None` unless the server was started with
+    /// [`Builder::tls`].
+    pub fn cert_pem(&self) -> Option<&str> {
+        self.cert_pem.as_deref()
     }
 
     fn spawn(builder: Builder) -> TestServer {
@@ -194,7 +215,13 @@ impl TestServer {
         }
 
         let mut tls_files = Vec::new();
+        let mut cert_pem = None;
         if builder.tls {
+            // The client side of the TLS tests runs in this process, where two
+            // rustls crypto providers are linked (aws-lc-rs via tonic, ring via
+            // rcgen). Install one explicitly so rustls does not fail to pick.
+            install_crypto_provider();
+
             let (cert, key) = generate_self_signed_pem();
             let cert_file = TempFile::with_content(&cert);
             let key_file = TempFile::with_content(&key);
@@ -203,13 +230,14 @@ impl TestServer {
             cmd.arg("--tls-key-pem-file").arg(&key_file.path);
             tls_files.push(cert_file);
             tls_files.push(key_file);
+            cert_pem = Some(cert);
         }
 
         let mut child = cmd.spawn().expect("failed to spawn survey-tool-server binary");
 
         wait_ready(&mut child, port);
 
-        TestServer { child, port, _storage: storage, _db: db, _tls_files: tls_files }
+        TestServer { child, port, cert_pem, _storage: storage, _db: db, _tls_files: tls_files }
     }
 }
 
@@ -245,6 +273,18 @@ fn free_port() -> u16 {
     // Binding to port 0 lets the OS pick a free port; we drop the listener and
     // hand the port to the server. The reuse window is negligible in tests.
     std::net::TcpListener::bind("127.0.0.1:0").expect("could not bind an ephemeral port").local_addr().unwrap().port()
+}
+
+/// Install a process-level rustls crypto provider (once).
+///
+/// tonic's TLS uses rustls, which requires exactly one provider to be selected.
+/// This test binary links two (`aws-lc-rs` via tonic and `ring` via rcgen), so
+/// rustls cannot decide automatically; we pin `aws-lc-rs`, tonic's own default.
+fn install_crypto_provider() {
+    CRYPTO.call_once(|| {
+        // Ignore the result: a provider may already be installed by another path.
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+    });
 }
 
 /// Generate a self-signed certificate + PKCS#8 key as PEM strings.
